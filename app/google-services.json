@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:354874868790:android:2c016cc71df885732f4497",
+        "android_client_info": {
+          "package_name": "com.livetvpro"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuaSp9csn6bo4d_617WE3pg3BVsUI9sH8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:354874868790:android:b0d1fed7cb74ac922f4497",
         "android_client_info": {
           "package_name": "com.livetvpro.debug"
