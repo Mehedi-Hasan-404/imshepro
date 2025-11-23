@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="live_tv_pro_prefs.xml"/>
+    </cloud-backup>
+</data-extraction-rules>
