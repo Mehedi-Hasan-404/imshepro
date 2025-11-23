@@ -1,90 +1,37 @@
-name: Build Debug APK (artifact)
+# .github/workflows/build-apk.yml
+name: Build LiveTVPro Debug APK
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
-  build-debug:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-
-    env:
-      ANDROID_SDK_ROOT: /opt/android-sdk
-      ANDROID_HOME: /opt/android-sdk
-      JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF8
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up JDK 17 (Temurin)
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
+          cache: 'gradle'
 
-      - name: Ensure gradlew is executable
-        run: |
-          if [ -f ./gradlew ]; then
-            chmod +x ./gradlew
-            echo "gradlew exists and marked executable"
-          else
-            echo "Warning: gradlew not found at repo root — build may fail"
-          fi
-          ls -la ./gradlew || true
-        shell: bash
+      - name: Grant Execute Permission to gradlew
+        run: chmod +x gradlew
 
-      - name: Install Android SDK command-line tools & required packages
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y unzip curl
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          cd $ANDROID_SDK_ROOT
-          curl -sS https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdline-tools.zip
-          unzip -q cmdline-tools.zip -d $ANDROID_SDK_ROOT/cmdline-tools
-          mv $ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest || true
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-          yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-        shell: bash
+      - name: Build Debug APK
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      - name: (Optional) Create google-services.json from secret
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
-        run: |
-          mkdir -p app
-          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-          echo "Wrote app/google-services.json"
-        shell: bash
-
-      - name: Build debug APK (:app:assembleDebug)
-        run: |
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace |& tee build_debug.log
-          echo "=== LAST 200 LINES OF BUILD LOG ==="
-          tail -n 200 build_debug.log || true
-        shell: bash
-
-      - name: List build outputs (diagnostic)
-        run: |
-          echo "Listing APK/AAB files under app/build:"
-          find app/build -type f \( -name "*.apk" -o -name "*.aab" \) -print || true
-          echo "app/build/outputs contents:"
-          ls -la app/build/outputs || true
-          ls -la app/build/outputs/apk || true
-        shell: bash
-
-      - name: Upload debug APK artifact
-        if: always()
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-artifacts
-          path: |
-            app/build/outputs/**/*.apk
-          retention-days: 14
+          name: LiveTVPro-debug
+          path: app/build/outputs/**/*.apk
+          retention-days: 5
