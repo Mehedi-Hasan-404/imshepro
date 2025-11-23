@@ -16,7 +16,7 @@ jobs:
       ANDROID_SDK_ROOT: /opt/android-sdk
       ANDROID_HOME: /opt/android-sdk
       JAVA_TOOL_OPTIONS: -Dfile.encoding=UTF8
-      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx1536m"
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false"
 
     steps:
       - name: Checkout repository
@@ -34,11 +34,10 @@ jobs:
       - name: Ensure gradlew is executable
         run: |
           if [ -f ./gradlew ]; then
-            git update-index --add --chmod=+x gradlew || true
             chmod +x ./gradlew
             echo "gradlew exists and is executable"
           else
-            echo "Error: gradlew not found at repo root (add Gradle wrapper to repo)" >&2
+            echo "Error: gradlew not found at repo root" >&2
             exit 1
           fi
         shell: bash
@@ -51,65 +50,91 @@ jobs:
           cd $ANDROID_SDK_ROOT
           curl -sS https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip -o cmdline-tools.zip
           unzip -q cmdline-tools.zip -d $ANDROID_SDK_ROOT/cmdline-tools
-          # move into "latest" so sdkmanager path is stable
           mv $ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest || true
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-          # accept licenses and install essentials
           yes | sdkmanager --licenses
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" || sdkmanager --verbose "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+        shell: bash
+
+      - name: Create mock google-services.json for debug build
+        run: |
+          mkdir -p app
+          cat > app/google-services.json << 'EOF'
+          {
+            "project_info": {
+              "project_number": "123456789",
+              "project_id": "livetvpro-mock",
+              "storage_bucket": "livetvpro-mock.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:123456789:android:abcdef1234567890",
+                  "android_client_info": {
+                    "package_name": "com.livetvpro.debug"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "AIzaSyDummyKeyForDebugBuilds123456789"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          echo "Created mock google-services.json for debug build"
         shell: bash
 
       - name: Show Java & SDK info (diagnostic)
         run: |
-          java -version || true
+          java -version
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          ls -la $ANDROID_SDK_ROOT || true
-          sdkmanager --list || true
+          ls -la $ANDROID_SDK_ROOT
+          which sdkmanager
         shell: bash
 
-      - name: (Optional) Create google-services.json from secret
-        if: ${{ secrets.GOOGLE_SERVICES_JSON != '' }}
-        env:
-          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      - name: Validate Gradle wrapper
         run: |
-          mkdir -p app
-          echo "$GOOGLE_SERVICES_JSON" > app/google-services.json
-          echo "Wrote app/google-services.json"
+          ./gradlew --version
         shell: bash
 
-      - name: (Optional) Decode keystore from secret (for release)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      - name: Build debug APK
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/keystore"
-          echo "$KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/keystore/keystore.jks"
-          ls -la "$GITHUB_WORKSPACE/keystore"
+          ./gradlew clean assembleDebug --no-daemon --stacktrace --info
         shell: bash
 
-      - name: Build debug APK (:app:assembleDebug)
-        run: |
-          ./gradlew clean :app:assembleDebug --no-daemon --stacktrace |& tee build_debug.log
-          echo
-          echo "=== LAST 200 LINES OF BUILD LOG ==="
-          tail -n 200 build_debug.log || true
-        shell: bash
-
-      - name: List build outputs (diagnostic)
-        run: |
-          echo "Listing any APK/AAB under app/build:"
-          find app/build -type f \( -name "*.apk" -o -name "*.aab" \) -print || true
-          echo "Top-level outputs folder:"
-          ls -la app/build/outputs || true
-          echo "APK debug folder:"
-          ls -la app/build/outputs/apk || true
-        shell: bash
-
-      - name: Upload debug APK artifact (wildcard)
+      - name: List build outputs
         if: always()
+        run: |
+          echo "=== Searching for APK files ==="
+          find . -type f -name "*.apk" -print
+          echo ""
+          echo "=== APK directory listing ==="
+          ls -la app/build/outputs/apk/debug/ || echo "Debug APK directory not found"
+        shell: bash
+
+      - name: Upload debug APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-artifacts
-          path: |
-            app/build/outputs/**/*.apk
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            app/build/outputs/logs/
+            build_debug.log
+          retention-days: 7
