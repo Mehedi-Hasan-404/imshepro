@@ -13,6 +13,7 @@ import com.livetvpro.data.models.EventStatus
 import com.livetvpro.databinding.FragmentLiveEventsBinding
 import com.livetvpro.ui.adapters.LiveEventAdapter
 import dagger.hilt.android.AndroidEntryPoint
+import timber.log.Timber
 
 @AndroidEntryPoint
 class LiveEventsFragment : Fragment() {
@@ -34,14 +35,28 @@ class LiveEventsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupRecyclerView()
-        setupFilters()
-        observeViewModel()
+        
+        try {
+            setupRecyclerView()
+            setupFilters()
+            observeViewModel()
+            
+            // Default filter to Live
+            viewModel.filterEvents(EventStatus.LIVE)
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting up LiveEventsFragment")
+            showError("Failed to initialize: ${e.message}")
+        }
     }
 
     private fun setupRecyclerView() {
         eventAdapter = LiveEventAdapter { event ->
-            EventPlayerActivity.start(requireContext(), event.id)
+            try {
+                EventPlayerActivity.start(requireContext(), event.id)
+            } catch (e: Exception) {
+                Timber.e(e, "Error starting event player")
+                showError("Failed to play event: ${e.message}")
+            }
         }
 
         binding.recyclerViewEvents.apply {
@@ -81,8 +96,13 @@ class LiveEventsFragment : Fragment() {
 
     private fun observeViewModel() {
         viewModel.filteredEvents.observe(viewLifecycleOwner) { events ->
-            eventAdapter.submitList(events)
-            binding.emptyView.visibility = if (events.isEmpty()) View.VISIBLE else View.GONE
+            try {
+                eventAdapter.submitList(events)
+                binding.emptyView.visibility = if (events.isEmpty()) View.VISIBLE else View.GONE
+                binding.recyclerViewEvents.visibility = if (events.isEmpty()) View.GONE else View.VISIBLE
+            } catch (e: Exception) {
+                Timber.e(e, "Error updating events list")
+            }
         }
 
         viewModel.isLoading.observe(viewLifecycleOwner) { isLoading ->
@@ -91,12 +111,18 @@ class LiveEventsFragment : Fragment() {
 
         viewModel.error.observe(viewLifecycleOwner) { error ->
             if (error != null) {
-                binding.errorView.visibility = View.VISIBLE
-                binding.errorText.text = error
+                showError(error)
             } else {
                 binding.errorView.visibility = View.GONE
             }
         }
+    }
+
+    private fun showError(message: String) {
+        binding.errorView.visibility = View.VISIBLE
+        binding.errorText.text = message
+        binding.recyclerViewEvents.visibility = View.GONE
+        binding.emptyView.visibility = View.GONE
     }
 
     override fun onDestroyView() {
