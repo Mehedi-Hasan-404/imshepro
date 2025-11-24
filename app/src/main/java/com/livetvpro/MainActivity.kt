@@ -56,11 +56,68 @@ class MainActivity : AppCompatActivity() {
             .findFragmentById(R.id.nav_host_fragment) as NavHostFragment
         val navController = navHostFragment.navController
 
-        // Setup both drawer and bottom navigation
-        binding.navigationView.setupWithNavController(navController)
-        binding.bottomNavigation.setupWithNavController(navController)
+        // Setup drawer navigation (manual setup for better control)
+        binding.navigationView.setNavigationItemSelectedListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.homeFragment -> {
+                    if (navController.currentDestination?.id != R.id.homeFragment) {
+                        navController.popBackStack(R.id.homeFragment, false)
+                            || navController.navigate(R.id.homeFragment)
+                    }
+                }
+                R.id.liveEventsFragment -> {
+                    if (navController.currentDestination?.id != R.id.liveEventsFragment) {
+                        navController.navigate(R.id.liveEventsFragment)
+                    }
+                }
+                R.id.favoritesFragment -> {
+                    if (navController.currentDestination?.id != R.id.favoritesFragment) {
+                        navController.navigate(R.id.favoritesFragment)
+                    }
+                }
+                R.id.contactFragment -> {
+                    if (navController.currentDestination?.id != R.id.contactFragment) {
+                        navController.navigate(R.id.contactFragment)
+                    }
+                }
+            }
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            true
+        }
 
-        // Update toolbar title based on destination
+        // Setup bottom navigation (manual setup for better control)
+        binding.bottomNavigation.setOnItemSelectedListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.homeFragment -> {
+                    if (navController.currentDestination?.id != R.id.homeFragment) {
+                        navController.popBackStack(R.id.homeFragment, false)
+                            || navController.navigate(R.id.homeFragment)
+                    }
+                    true
+                }
+                R.id.liveEventsFragment -> {
+                    if (navController.currentDestination?.id != R.id.liveEventsFragment) {
+                        navController.navigate(R.id.liveEventsFragment)
+                    }
+                    true
+                }
+                R.id.favoritesFragment -> {
+                    if (navController.currentDestination?.id != R.id.favoritesFragment) {
+                        navController.navigate(R.id.favoritesFragment)
+                    }
+                    true
+                }
+                R.id.contactFragment -> {
+                    if (navController.currentDestination?.id != R.id.contactFragment) {
+                        navController.navigate(R.id.contactFragment)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Update toolbar title and bottom nav selection based on destination
         navController.addOnDestinationChangedListener { _, destination, _ ->
             val title = when (destination.id) {
                 R.id.homeFragment -> "Categories"
@@ -71,6 +128,9 @@ class MainActivity : AppCompatActivity() {
                 else -> "Live TV Pro"
             }
             binding.toolbarTitle.text = title
+            
+            // Update bottom navigation selection
+            binding.bottomNavigation.menu.findItem(destination.id)?.isChecked = true
             
             // Close drawer after navigation
             if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
