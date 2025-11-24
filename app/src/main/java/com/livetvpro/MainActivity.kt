@@ -61,8 +61,9 @@ class MainActivity : AppCompatActivity() {
             when (menuItem.itemId) {
                 R.id.homeFragment -> {
                     if (navController.currentDestination?.id != R.id.homeFragment) {
-                        navController.popBackStack(R.id.homeFragment, false)
-                            || navController.navigate(R.id.homeFragment)
+                        if (!navController.popBackStack(R.id.homeFragment, false)) {
+                            navController.navigate(R.id.homeFragment)
+                        }
                     }
                 }
                 R.id.liveEventsFragment -> {
@@ -90,8 +91,9 @@ class MainActivity : AppCompatActivity() {
             when (menuItem.itemId) {
                 R.id.homeFragment -> {
                     if (navController.currentDestination?.id != R.id.homeFragment) {
-                        navController.popBackStack(R.id.homeFragment, false)
-                            || navController.navigate(R.id.homeFragment)
+                        if (!navController.popBackStack(R.id.homeFragment, false)) {
+                            navController.navigate(R.id.homeFragment)
+                        }
                     }
                     true
                 }
