@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <group android:checkableBehavior="single">
+        <item
+            android:id="@+id/homeFragment"
+            android:icon="@drawable/ic_home"
+            android:title="@string/nav_home" />
+
+        <item
+            android:id="@+id/liveEventsFragment"
+            android:icon="@drawable/ic_live"
+            android:title="@string/nav_live" />
+
+        <item
+            android:id="@+id/favoritesFragment"
+            android:icon="@drawable/ic_star_filled"
+            android:title="@string/nav_favorites" />
+
+        <item
+            android:id="@+id/contactFragment"
+            android:icon="@drawable/ic_contact"
+            android:title="@string/nav_contact" />
+    </group>
+</menu>
