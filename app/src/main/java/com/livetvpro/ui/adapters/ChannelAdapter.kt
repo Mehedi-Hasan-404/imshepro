@@ -6,13 +6,14 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
 import com.livetvpro.databinding.ItemChannelBinding
 
 class ChannelAdapter(
     private val onChannelClick: (Channel) -> Unit,
-    private val onFavoriteClick: (Channel) -> Unit,
+    private val onFavoriteToggle: (Channel) -> Unit,
     private val isFavorite: (String) -> Boolean
 ) : ListAdapter<Channel, ChannelAdapter.ChannelViewHolder>(ChannelDiffCallback()) {
 
@@ -34,6 +35,7 @@ class ChannelAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
 
         init {
+            // Regular click - play channel
             binding.root.setOnClickListener {
                 val position = bindingAdapterPosition
                 if (position != RecyclerView.NO_POSITION) {
@@ -41,23 +43,53 @@ class ChannelAdapter(
                 }
             }
 
-            binding.favoriteButton.setOnClickListener {
+            // Long click - add/remove favorite
+            binding.root.setOnLongClickListener {
                 val position = bindingAdapterPosition
                 if (position != RecyclerView.NO_POSITION) {
-                    onFavoriteClick(getItem(position))
+                    showFavoriteDialog(getItem(position))
                 }
+                true
             }
+        }
+
+        private fun showFavoriteDialog(channel: Channel) {
+            val context = binding.root.context
+            val isFav = isFavorite(channel.id)
+            
+            val title = if (isFav) "Remove from Favorites?" else "Add to Favorites?"
+            val message = if (isFav) {
+                "Do you want to remove \"${channel.name}\" from your favorites?"
+            } else {
+                "Do you want to add \"${channel.name}\" to your favorites?"
+            }
+            val positiveButton = if (isFav) "Remove" else "Add"
+
+            MaterialAlertDialogBuilder(context)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(positiveButton) { dialog, _ ->
+                    onFavoriteToggle(channel)
+                    notifyItemChanged(bindingAdapterPosition)
+                    dialog.dismiss()
+                }
+                .setNegativeButton("Cancel") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .show()
         }
 
         fun bind(channel: Channel) {
             binding.channelName.text = channel.name
             binding.channelCategory.text = channel.categoryName
 
-            // Update favorite icon
+            // Show favorite indicator (small badge) but no clickable button
             val isFav = isFavorite(channel.id)
-            binding.favoriteButton.setImageResource(
-                if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star_outline
-            )
+            binding.favoriteIndicator.visibility = if (isFav) {
+                android.view.View.VISIBLE
+            } else {
+                android.view.View.GONE
+            }
 
             // Load channel logo
             Glide.with(binding.channelLogo)
