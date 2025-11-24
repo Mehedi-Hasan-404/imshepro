@@ -70,7 +70,11 @@ class ChannelAdapter(
                 .setMessage(message)
                 .setPositiveButton(positiveButton) { dialog, _ ->
                     onFavoriteToggle(channel)
-                    notifyItemChanged(bindingAdapterPosition)
+                    // Update UI immediately
+                    val position = bindingAdapterPosition
+                    if (position != RecyclerView.NO_POSITION) {
+                        notifyItemChanged(position)
+                    }
                     dialog.dismiss()
                 }
                 .setNegativeButton("Cancel") { dialog, _ ->
@@ -109,5 +113,18 @@ class ChannelAdapter(
         override fun areContentsTheSame(oldItem: Channel, newItem: Channel): Boolean {
             return oldItem == newItem
         }
+    }
+
+    // Public method to refresh a single item
+    fun refreshItem(channelId: String) {
+        val position = currentList.indexOfFirst { it.id == channelId }
+        if (position != -1) {
+            notifyItemChanged(position)
+        }
+    }
+
+    // Public method to refresh all items
+    fun refreshAll() {
+        notifyDataSetChanged()
     }
 }
