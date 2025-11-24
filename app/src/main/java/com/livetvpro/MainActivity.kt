@@ -65,9 +65,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Handle reselection
-        binding.navigationView.setNavigationItemReselectedListener { 
-            // Do nothing to prevent fragment recreation
+        // Handle navigation item reselection - prevent fragment recreation
+        binding.navigationView.setOnNavigationItemSelectedListener { item ->
+            // Only navigate if it's a different destination
+            if (item.itemId != navController.currentDestination?.id) {
+                navController.navigate(item.itemId)
+            }
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            true
         }
     }
 
@@ -90,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         return navController.navigateUp() || super.onSupportNavigateUp()
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
             binding.drawerLayout.closeDrawer(GravityCompat.START)
