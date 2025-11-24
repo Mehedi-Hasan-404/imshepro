@@ -63,16 +63,8 @@ class MainActivity : AppCompatActivity() {
                 R.id.contactFragment -> "Contact"
                 else -> "Live TV Pro"
             }
-        }
-
-        // Handle navigation item reselection - prevent fragment recreation
-        binding.navigationView.setOnNavigationItemSelectedListener { item ->
-            // Only navigate if it's a different destination
-            if (item.itemId != navController.currentDestination?.id) {
-                navController.navigate(item.itemId)
-            }
+            // Close drawer after navigation
             binding.drawerLayout.closeDrawer(GravityCompat.START)
-            true
         }
     }
 
