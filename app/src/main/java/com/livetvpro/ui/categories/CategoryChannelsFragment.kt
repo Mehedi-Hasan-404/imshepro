@@ -4,14 +4,9 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.widget.SearchView
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.GridLayoutManager
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.livetvpro.MainActivity
-import com.livetvpro.R
 import com.livetvpro.databinding.FragmentCategoryChannelsBinding
 import com.livetvpro.ui.adapters.ChannelAdapter
 import com.livetvpro.ui.player.PlayerActivity
@@ -38,54 +33,8 @@ class CategoryChannelsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        setupToolbar()
         setupRecyclerView()
         observeViewModel()
-    }
-
-    private fun setupToolbar() {
-        // Setup search button
-        (activity as? MainActivity)?.findViewById<View>(R.id.btn_search)?.setOnClickListener {
-            showSearchDialog()
-        }
-
-        // Setup favorites button
-        (activity as? MainActivity)?.findViewById<View>(R.id.btn_favorites)?.setOnClickListener {
-            findNavController().navigate(R.id.action_category_to_favorites)
-        }
-
-        // Setup theme toggle button
-        (activity as? MainActivity)?.findViewById<View>(R.id.btn_theme_toggle)?.setOnClickListener {
-            (activity as? MainActivity)?.toggleTheme()
-        }
-    }
-
-    private fun showSearchDialog() {
-        val searchView = SearchView(requireContext())
-        searchView.queryHint = "Search channels..."
-        
-        val dialog = MaterialAlertDialogBuilder(requireContext())
-            .setTitle("Search Channels")
-            .setView(searchView)
-            .setNegativeButton("Close", null)
-            .create()
-
-        searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String?): Boolean {
-                viewModel.searchChannels(query ?: "")
-                return true
-            }
-
-            override fun onQueryTextChange(newText: String?): Boolean {
-                viewModel.searchChannels(newText ?: "")
-                return true
-            }
-        })
-
-        dialog.show()
-        
-        // Auto-focus search
-        searchView.requestFocus()
     }
 
     private fun setupRecyclerView() {
@@ -95,7 +44,10 @@ class CategoryChannelsFragment : Fragment() {
             },
             onFavoriteToggle = { channel ->
                 viewModel.toggleFavorite(channel)
-                channelAdapter.notifyDataSetChanged()
+                // Refresh only this specific item after a short delay
+                binding.root.postDelayed({
+                    channelAdapter.refreshItem(channel.id)
+                }, 100)
             },
             isFavorite = { channelId ->
                 viewModel.isFavorite(channelId)
@@ -133,8 +85,10 @@ class CategoryChannelsFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh adapter to update favorite indicators
-        channelAdapter.notifyDataSetChanged()
+        // Refresh all items when returning to this fragment
+        binding.root.postDelayed({
+            channelAdapter.refreshAll()
+        }, 50)
     }
 
     override fun onDestroyView() {
