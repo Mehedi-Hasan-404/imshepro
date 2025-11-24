@@ -12,11 +12,6 @@
             android:title="@string/nav_live" />
 
         <item
-            android:id="@+id/favoritesFragment"
-            android:icon="@drawable/ic_star_filled"
-            android:title="@string/nav_favorites" />
-
-        <item
             android:id="@+id/contactFragment"
             android:icon="@drawable/ic_contact"
             android:title="@string/nav_contact" />
