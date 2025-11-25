@@ -191,8 +191,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
         exoForward = binding.playerView.findViewById(R.id.exo_forward)
 
         // Find lock overlay in activity layout (not controller)
-        val lockOverlay: FrameLayout? = binding.findViewById(R.id.lock_overlay)
-        val unlockButton: ImageButton? = binding.findViewById(R.id.unlock_button)
+        val lockOverlay: FrameLayout? = findViewById(R.id.lock_overlay)
+val unlockButton: ImageButton? = findViewById(R.id.unlock_button)
 
         // Set channel name
         exoChannelName?.text = channel.name
