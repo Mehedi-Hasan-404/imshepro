@@ -1,16 +1,18 @@
-// ===================================
-// FILE: app/src/main/java/com/livetvpro/ui/player/ChannelPlayerActivity.kt
-// ACTION: CREATE NEW FILE
-// ===================================
-
 package com.livetvpro.ui.player
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
+import android.util.Rational
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageButton
+import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.MediaItem
@@ -19,7 +21,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.GridLayoutManager
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
 import com.livetvpro.databinding.ActivityChannelPlayerBinding
@@ -37,7 +39,29 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private lateinit var channel: Channel
     private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
+    
+    // UI Control Elements
+    private var exoBack: ImageButton? = null
+    private var exoChannelName: TextView? = null
+    private var exoPip: ImageButton? = null
+    private var exoSettings: ImageButton? = null
+    private var exoMute: ImageButton? = null
+    private var exoLock: ImageButton? = null
+    private var exoAspectRatio: ImageButton? = null
+    private var exoPlayPause: ImageButton? = null
+    private var exoFullscreen: ImageButton? = null
+    
+    // State variables
     private var isFullscreen = false
+    private var isLocked = false
+    private var isMuted = false
+    private var currentAspectRatioIndex = 0
+    
+    private val aspectRatios = listOf(
+        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
+        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+    )
 
     companion object {
         private const val EXTRA_CHANNEL = "extra_channel"
@@ -59,7 +83,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
 
-        // START IN PORTRAIT MODE
+        // Start in portrait
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         channel = intent.getParcelableExtra(EXTRA_CHANNEL) ?: run {
@@ -68,89 +92,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
             return
         }
 
-        Timber.d("ChannelPlayerActivity started for: ${channel.name}")
-
-        setupToolbar()
         setupPlayer()
+        setupCustomControls()
         setupRelatedChannels()
         loadRelatedChannels()
     }
 
-    private fun setupToolbar() {
-        binding.toolbarTitle.text = channel.name
-        
-        binding.btnBack.setOnClickListener {
-            finish()
-        }
-
-        binding.btnFullscreen.setOnClickListener {
-            toggleFullscreen()
-        }
-
-        binding.btnFill.setOnClickListener {
-            toggleAspectRatio()
-        }
-    }
-
-    private fun toggleAspectRatio() {
-        binding.playerView.resizeMode = 
-            if (binding.playerView.resizeMode == androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL) {
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-            } else {
-                androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
-            }
-        
-        Timber.d("Aspect ratio toggled to: ${binding.playerView.resizeMode}")
-    }
-
-    private fun toggleFullscreen() {
-        isFullscreen = !isFullscreen
-        
-        if (isFullscreen) {
-            // FULLSCREEN MODE - Landscape
-            Timber.d("Entering fullscreen mode")
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            
-            // Hide related channels and toolbar
-            binding.toolbar.visibility = View.GONE
-            binding.relatedChannelsSection.visibility = View.GONE
-            
-            // Make player fill screen
-            val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-            params.dimensionRatio = null
-            params.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-            params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-            binding.playerContainer.layoutParams = params
-            
-            // Update fullscreen icon
-            binding.btnFullscreen.setImageResource(R.drawable.ic_close)
-            
-        } else {
-            // PORTRAIT MODE
-            Timber.d("Exiting fullscreen mode")
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            
-            // Show related channels and toolbar
-            binding.toolbar.visibility = View.VISIBLE
-            binding.relatedChannelsSection.visibility = View.VISIBLE
-            
-            // Restore 16:9 player
-            val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-            params.dimensionRatio = "16:9"
-            params.bottomToTop = R.id.related_channels_section
-            params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-            binding.playerContainer.layoutParams = params
-            
-            // Update fullscreen icon
-            binding.btnFullscreen.setImageResource(R.drawable.ic_search)
-        }
-    }
-
     private fun setupPlayer() {
         try {
-            Timber.d("Setting up player for: ${channel.name}")
-            Timber.d("Stream URL: ${channel.streamUrl}")
-
             player = ExoPlayer.Builder(this)
                 .setMediaSourceFactory(
                     DefaultMediaSourceFactory(this)
@@ -166,7 +115,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 .also { exoPlayer ->
                     binding.playerView.player = exoPlayer
                     
-                    // Player configuration
+                    // Configure PlayerView
                     binding.playerView.useController = true
                     binding.playerView.controllerAutoShow = true
                     binding.playerView.controllerShowTimeoutMs = 5000
@@ -184,66 +133,129 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                 Player.STATE_BUFFERING -> {
                                     binding.progressBar.visibility = View.VISIBLE
                                     binding.errorView.visibility = View.GONE
-                                    Timber.d("Player buffering")
                                 }
                                 Player.STATE_READY -> {
                                     binding.progressBar.visibility = View.GONE
                                     binding.errorView.visibility = View.GONE
-                                    Timber.d("Player ready - playing")
+                                    updatePlayPauseIcon()
                                 }
                                 Player.STATE_ENDED -> {
-                                    Timber.d("Playback ended")
                                     showError("Stream ended")
-                                }
-                                Player.STATE_IDLE -> {
-                                    Timber.d("Player idle")
                                 }
                             }
                         }
 
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                            Timber.e(error, "Playback error")
                             binding.progressBar.visibility = View.GONE
-                            
                             val errorMessage = when (error.errorCode) {
                                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> 
-                                    "Server error: Unable to connect"
+                                    "Server error"
                                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> 
-                                    "Network error: Check connection"
-                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> 
-                                    "Connection timeout"
-                                androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> 
-                                    "Invalid stream format"
-                                else -> "Failed to play: ${error.message}"
+                                    "Network error"
+                                else -> "Playback failed"
                             }
-                            
                             showError(errorMessage)
                         }
 
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
-                            Timber.d("Is playing: $isPlaying")
+                            updatePlayPauseIcon()
                         }
                     })
                 }
-                
-            Timber.d("Player setup complete")
         } catch (e: Exception) {
             Timber.e(e, "Failed to setup player")
-            showError("Failed to initialize player: ${e.message}")
+            showError("Failed to initialize player")
+        }
+    }
+
+    private fun setupCustomControls() {
+        // Find custom control views
+        exoBack = binding.playerView.findViewById(R.id.exo_back)
+        exoChannelName = binding.playerView.findViewById(R.id.exo_channel_name)
+        exoPip = binding.playerView.findViewById(R.id.exo_pip)
+        exoSettings = binding.playerView.findViewById(R.id.exo_settings)
+        exoMute = binding.playerView.findViewById(R.id.exo_mute)
+        exoLock = binding.playerView.findViewById(R.id.exo_lock)
+        exoAspectRatio = binding.playerView.findViewById(R.id.exo_aspect_ratio)
+        exoPlayPause = binding.playerView.findViewById(R.id.exo_play_pause)
+        exoFullscreen = binding.playerView.findViewById(R.id.exo_fullscreen)
+
+        // Set channel name
+        exoChannelName?.text = channel.name
+
+        // Back button
+        exoBack?.setOnClickListener {
+            if (isFullscreen) {
+                exitFullscreen()
+            } else {
+                finish()
+            }
+        }
+
+        // PiP button
+        exoPip?.apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && 
+                packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                visibility = View.VISIBLE
+                setOnClickListener { enterPipMode() }
+            } else {
+                visibility = View.GONE
+            }
+        }
+
+        // Settings button (placeholder - can add quality settings)
+        exoSettings?.setOnClickListener {
+            // TODO: Show quality/speed settings dialog
+        }
+
+        // Mute button
+        exoMute?.setOnClickListener {
+            toggleMute()
+        }
+
+        // Lock button
+        exoLock?.setOnClickListener {
+            toggleLock()
+        }
+
+        // Aspect ratio button
+        exoAspectRatio?.setOnClickListener {
+            cycleAspectRatio()
+        }
+
+        // Play/Pause button
+        exoPlayPause?.setOnClickListener {
+            player?.let {
+                if (it.isPlaying) {
+                    it.pause()
+                } else {
+                    it.play()
+                }
+            }
+        }
+
+        // Fullscreen button
+        exoFullscreen?.setOnClickListener {
+            toggleFullscreen()
+        }
+
+        // Retry button in error view
+        binding.retryButton.setOnClickListener {
+            binding.errorView.visibility = View.GONE
+            setupPlayer()
         }
     }
 
     private fun setupRelatedChannels() {
         relatedChannelsAdapter = RelatedChannelAdapter { relatedChannel ->
-            switchChannel(relatedChannel)
+            if (!isLocked) {
+                switchChannel(relatedChannel)
+            }
         }
 
         binding.relatedChannelsRecycler.apply {
-            layoutManager = LinearLayoutManager(
-                this@ChannelPlayerActivity,
-                LinearLayoutManager.HORIZONTAL,
-                false
-            )
+            // Use GridLayoutManager with 3 columns
+            layoutManager = GridLayoutManager(this@ChannelPlayerActivity, 3)
             adapter = relatedChannelsAdapter
             setHasFixedSize(true)
         }
@@ -253,8 +265,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
         viewModel.loadRelatedChannels(channel.categoryId, channel.id)
         
         viewModel.relatedChannels.observe(this) { channels ->
-            Timber.d("Loaded ${channels.size} related channels")
             relatedChannelsAdapter.submitList(channels)
+            binding.relatedCount.text = channels.size.toString()
             
             if (channels.isEmpty()) {
                 binding.relatedChannelsSection.visibility = View.GONE
@@ -263,31 +275,136 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun switchChannel(newChannel: Channel) {
-        Timber.d("Switching from '${channel.name}' to '${newChannel.name}'")
-        
-        // Update channel
         channel = newChannel
-        binding.toolbarTitle.text = channel.name
+        exoChannelName?.text = channel.name
         
-        // Stop current playback
         player?.stop()
-        
-        // Load new stream
         val mediaItem = MediaItem.fromUri(channel.streamUrl)
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
         
-        // Hide error if showing
         binding.errorView.visibility = View.GONE
         binding.progressBar.visibility = View.VISIBLE
+    }
+
+    private fun toggleFullscreen() {
+        if (isFullscreen) {
+            exitFullscreen()
+        } else {
+            enterFullscreen()
+        }
+    }
+
+    private fun enterFullscreen() {
+        isFullscreen = true
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        
+        // Hide related channels
+        binding.relatedChannelsSection.visibility = View.GONE
+        
+        // Make player fill screen
+        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        params.dimensionRatio = null
+        params.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+        binding.playerContainer.layoutParams = params
+        
+        // Update icon
+        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
+    }
+
+    private fun exitFullscreen() {
+        isFullscreen = false
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        
+        // Show related channels
+        binding.relatedChannelsSection.visibility = View.VISIBLE
+        
+        // Restore 16:9
+        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        params.dimensionRatio = "16:9"
+        params.bottomToTop = R.id.related_channels_section
+        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+        binding.playerContainer.layoutParams = params
+        
+        // Update icon
+        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen)
+    }
+
+    private fun toggleMute() {
+        player?.let {
+            isMuted = !isMuted
+            it.volume = if (isMuted) 0f else 1f
+            exoMute?.setImageResource(
+                if (isMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up
+            )
+        }
+    }
+
+    private fun toggleLock() {
+        isLocked = !isLocked
+        
+        // Hide/show controls when locked
+        val visibility = if (isLocked) View.GONE else View.VISIBLE
+        binding.playerView.useController = !isLocked
+        
+        // Update lock icon
+        exoLock?.setImageResource(
+            if (isLocked) R.drawable.ic_lock_closed else R.drawable.ic_lock_open
+        )
+        
+        // Hide related channels when locked
+        if (isFullscreen) {
+            binding.relatedChannelsSection.visibility = if (isLocked) View.GONE else View.GONE
+        }
+    }
+
+    private fun cycleAspectRatio() {
+        currentAspectRatioIndex = (currentAspectRatioIndex + 1) % aspectRatios.size
+        binding.playerView.resizeMode = aspectRatios[currentAspectRatioIndex]
+    }
+
+    private fun updatePlayPauseIcon() {
+        player?.let {
+            exoPlayPause?.setImageResource(
+                if (it.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            )
+        }
+    }
+
+    private fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val aspectRatio = Rational(16, 9)
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(aspectRatio)
+                .build()
+            enterPictureInPictureMode(params)
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            // Hide UI in PiP mode
+            binding.relatedChannelsSection.visibility = View.GONE
+            binding.playerView.useController = false
+        } else {
+            // Restore UI
+            if (!isFullscreen) {
+                binding.relatedChannelsSection.visibility = View.VISIBLE
+            }
+            binding.playerView.useController = true
+        }
     }
 
     private fun showError(message: String) {
         binding.errorView.visibility = View.VISIBLE
         binding.errorText.text = message
         binding.progressBar.visibility = View.GONE
-        Timber.e("Showing error: $message")
     }
 
     private fun hideSystemUI() {
@@ -304,19 +421,18 @@ class ChannelPlayerActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         player?.pause()
-        Timber.d("Player paused")
     }
 
     override fun onStop() {
         super.onStop()
-        player?.release()
-        Timber.d("Player stopped and released")
+        if (!isInPictureInPictureMode) {
+            player?.release()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         player?.release()
         player = null
-        Timber.d("ChannelPlayerActivity destroyed")
     }
 }
