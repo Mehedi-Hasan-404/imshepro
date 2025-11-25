@@ -17,7 +17,9 @@
         app:layout_constraintTop_toTopOf="parent"
         app:show_buffering="when_playing"
         app:surface_type="texture_view"
-        app:controller_layout_id="@layout/custom_player_controls" />
+        app:controller_layout_id="@layout/custom_player_controls"
+        app:use_controller="true"
+        app:show_timeout="3000" />
 
     <!-- Loading Progress -->
     <ProgressBar
@@ -62,7 +64,7 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Related Channels Container -->
+    <!-- Related Channels Container at Bottom -->
     <LinearLayout
         android:id="@+id/related_channels_container"
         android:layout_width="0dp"
@@ -88,7 +90,7 @@
             android:paddingEnd="16dp"
             android:paddingBottom="8dp" />
 
-        <!-- Horizontal RecyclerView for Related Channels -->
+        <!-- Horizontal RecyclerView -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/related_channels_recycler"
             android:layout_width="match_parent"
