@@ -3,10 +3,10 @@
     android:id="@+id/exo_controller_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:foregroundGravity="top"
-    android:clipToPadding="false">
+    android:clipToPadding="false"
+    android:foregroundGravity="top">
 
-    <!-- TOP BAR (anchored to top) with overlay gradient & elevation -->
+    <!-- TOP BAR (anchored to top) -->
     <LinearLayout
         android:id="@+id/exo_top_bar"
         android:layout_width="match_parent"
@@ -16,8 +16,7 @@
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
         android:gravity="center_vertical"
-        android:background="@drawable/gradient_overlay_top"
-        android:elevation="6dp">
+        android:visibility="visible">
 
         <ImageButton
             android:id="@+id/exo_back"
@@ -73,51 +72,95 @@
             android:contentDescription="@string/lock" />
     </LinearLayout>
 
-    <!-- Center area (ExoPlayer center controls appear here) -->
+    <!-- CENTER: error / loading overlays will appear above player content if needed -->
     <FrameLayout
+        android:id="@+id/exo_center_overlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingTop="56dp"
-        android:paddingBottom="64dp">
-        <!-- Exo center controls -->
-    </FrameLayout>
+        android:layout_gravity="center"
+        android:padding="16dp" />
 
-    <!-- BOTTOM CONTROLS (seekbar + playback) with overlay gradient & elevation -->
+    <!-- BOTTOM CONTROLS (seekbar + centered playback controls anchored to bottom) -->
     <LinearLayout
         android:id="@+id/exo_bottom_bar"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="8dp"
         android:layout_gravity="bottom"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:background="@drawable/gradient_overlay_bottom"
-        android:elevation="6dp">
+        android:background="@android:color/transparent">
 
-        <ImageButton
-            android:id="@+id/exo_play_pause"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_play"
-            android:contentDescription="@string/play" />
-
-        <com.google.android.exoplayer2.ui.DefaultTimeBar
-            android:id="@+id/exo_progress"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+        <!-- Seekbar row -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_marginEnd="12dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
 
-        <ImageButton
-            android:id="@+id/exo_fullscreen"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_fullscreen"
-            android:contentDescription="@string/fullscreen" />
+            <TextView
+                android:id="@+id/exo_position"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:paddingEnd="8dp" />
+
+            <SeekBar
+                android:id="@+id/exo_seek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
+
+            <TextView
+                android:id="@+id/exo_duration"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="00:00"
+                android:textColor="@android:color/white"
+                android:textSize="12sp"
+                android:paddingStart="8dp" />
+        </LinearLayout>
+
+        <!-- Center playback controls -->
+        <LinearLayout
+            android:id="@+id/exo_playback_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/exo_rewind"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/circle_bg"
+                android:src="@drawable/ic_skip_backward"
+                android:contentDescription="@string/rewind" />
+
+            <ImageButton
+                android:id="@+id/exo_play_pause"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="@drawable/circular_button_bg"
+                android:src="@drawable/ic_play"
+                android:contentDescription="@string/play" />
+
+            <ImageButton
+                android:id="@+id/exo_forward"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/circle_bg"
+                android:src="@drawable/ic_skip_forward"
+                android:contentDescription="@string/forward" />
+        </LinearLayout>
+
     </LinearLayout>
 
 </FrameLayout>
