@@ -8,27 +8,27 @@ import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
-import com.livetvpro.databinding.ItemRelatedChannelBinding
+import com.livetvpro.databinding.ItemRelatedChannelModernBinding
 
 class RelatedChannelAdapter(
     private val onChannelClick: (Channel) -> Unit
-) : ListAdapter<Channel, RelatedChannelAdapter.RelatedChannelViewHolder>(ChannelDiffCallback()) {
+) : ListAdapter<Channel, RelatedChannelAdapter.ModernChannelViewHolder>(ChannelDiffCallback()) {
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RelatedChannelViewHolder {
-        val binding = ItemRelatedChannelBinding.inflate(
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ModernChannelViewHolder {
+        val binding = ItemRelatedChannelModernBinding.inflate(
             LayoutInflater.from(parent.context),
             parent,
             false
         )
-        return RelatedChannelViewHolder(binding)
+        return ModernChannelViewHolder(binding)
     }
 
-    override fun onBindViewHolder(holder: RelatedChannelViewHolder, position: Int) {
+    override fun onBindViewHolder(holder: ModernChannelViewHolder, position: Int) {
         holder.bind(getItem(position))
     }
 
-    inner class RelatedChannelViewHolder(
-        private val binding: ItemRelatedChannelBinding
+    inner class ModernChannelViewHolder(
+        private val binding: ItemRelatedChannelModernBinding
     ) : RecyclerView.ViewHolder(binding.root) {
 
         init {
@@ -43,6 +43,7 @@ class RelatedChannelAdapter(
         fun bind(channel: Channel) {
             binding.channelName.text = channel.name
 
+            // Load logo with Glide
             Glide.with(binding.channelLogo)
                 .load(channel.logoUrl)
                 .placeholder(R.drawable.ic_channel_placeholder)
