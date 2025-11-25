@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- Player container anchored to top and related channels anchored to bottom -->
+    <!-- Player container (top) -->
     <FrameLayout
         android:id="@+id/player_container"
         android:layout_width="0dp"
@@ -16,21 +16,47 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@+id/related_channels_section"
+        app:layout_constraintBottom_toTopOf="@id/related_channels_section"
         app:layout_constraintDimensionRatio="16:9">
 
+        <!-- PlayerView uses custom controller; child anchored to top -->
         <androidx.media3.ui.PlayerView
             android:id="@+id/player_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:surface_type="texture_view"
+            android:layout_gravity="top"
+            app:controller_layout_id="@layout/exo_modern_player_controls"
             app:use_controller="true"
             app:auto_show="true"
             app:hide_on_touch="true"
             app:show_timeout="5000"
             app:show_buffering="when_playing"
-            app:controller_layout_id="@layout/exo_modern_player_controls" />
+            app:surface_type="texture_view"
+            app:resize_mode="fit" />
 
+        <!-- Lock overlay above player (hidden by default) -->
+        <FrameLayout
+            android:id="@+id/lock_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:elevation="20dp"
+            android:background="#88000000">
+
+            <ImageButton
+                android:id="@+id/unlock_button"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_gravity="center"
+                android:background="@android:color/transparent"
+                android:src="@drawable/ic_lock_open"
+                android:tint="@android:color/white"
+                android:contentDescription="Unlock" />
+        </FrameLayout>
+
+        <!-- Loading spinner -->
         <ProgressBar
             android:id="@+id/progress_bar"
             android:layout_width="56dp"
@@ -39,23 +65,24 @@
             android:indeterminateTint="@android:color/white"
             android:visibility="gone" />
 
+        <!-- Error view -->
         <LinearLayout
             android:id="@+id/error_view"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:orientation="vertical"
-            android:visibility="gone"
-            android:padding="24dp"
             android:gravity="center"
+            android:padding="24dp"
+            android:visibility="gone"
             android:background="#CC000000">
 
             <ImageView
                 android:layout_width="64dp"
                 android:layout_height="64dp"
+                android:layout_marginBottom="16dp"
                 android:src="@drawable/ic_close"
                 android:tint="#EF4444"
-                android:layout_marginBottom="16dp"
                 android:contentDescription="Error" />
 
             <TextView
@@ -65,7 +92,6 @@
                 android:text="Failed to load stream"
                 android:textColor="@android:color/white"
                 android:textSize="16sp"
-                android:gravity="center"
                 android:paddingBottom="16dp" />
 
             <Button
@@ -75,12 +101,11 @@
                 android:text="Retry"
                 android:textColor="@android:color/white"
                 android:backgroundTint="#EF4444" />
-
         </LinearLayout>
 
     </FrameLayout>
 
-    <!-- Related Channels Section -->
+    <!-- Related Channels Section (bottom) -->
     <LinearLayout
         android:id="@+id/related_channels_section"
         android:layout_width="0dp"
@@ -92,6 +117,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
+        <!-- Header -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -115,9 +141,9 @@
                 android:text="0"
                 android:textColor="#AAAAAA"
                 android:textSize="14sp" />
-
         </LinearLayout>
 
+        <!-- Grid -->
         <androidx.core.widget.NestedScrollView
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -125,8 +151,7 @@
             android:fillViewport="true"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:paddingBottom="16dp"
-            android:scrollbars="vertical">
+            android:paddingBottom="16dp">
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/related_channels_recycler"
@@ -136,7 +161,6 @@
                 android:clipToPadding="false" />
 
         </androidx.core.widget.NestedScrollView>
-
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
