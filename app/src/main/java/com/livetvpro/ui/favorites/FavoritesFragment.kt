@@ -1,3 +1,8 @@
+// ===================================
+// FILE: app/src/main/java/com/livetvpro/ui/favorites/FavoritesFragment.kt
+// ACTION: UPDATE - Change PlayerActivity to ChannelPlayerActivity
+// ===================================
+
 package com.livetvpro.ui.favorites
 
 import android.os.Bundle
@@ -10,7 +15,7 @@ import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.GridLayoutManager
 import com.livetvpro.databinding.FragmentFavoritesBinding
 import com.livetvpro.ui.adapters.FavoriteAdapter
-import com.livetvpro.ui.player.PlayerActivity
+import com.livetvpro.ui.player.ChannelPlayerActivity  // ⬅️ CHANGED: Use ChannelPlayerActivity
 import com.livetvpro.data.models.Channel
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -47,15 +52,17 @@ class FavoritesFragment : Fragment() {
     private fun setupRecyclerView() {
         favoriteAdapter = FavoriteAdapter(
             onChannelClick = { favorite ->
+                // Convert favorite to channel
                 val channel = Channel(
                     id = favorite.id,
                     name = favorite.name,
                     logoUrl = favorite.logoUrl,
-                    streamUrl = "", // Will be fetched
+                    streamUrl = "", // Will be fetched by player
                     categoryId = favorite.categoryId,
                     categoryName = favorite.categoryName
                 )
-                PlayerActivity.start(requireContext(), channel)
+                // ⬇️ CHANGED: Use ChannelPlayerActivity instead of PlayerActivity
+                ChannelPlayerActivity.start(requireContext(), channel)
             },
             onRemoveClick = { favorite ->
                 viewModel.removeFavorite(favorite.id)
