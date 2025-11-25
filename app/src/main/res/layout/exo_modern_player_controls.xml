@@ -6,7 +6,7 @@
     android:foregroundGravity="center"
     android:clipToPadding="false">
 
-    <!-- TOP BAR (Back, Channel name, PiP, Settings, Volume, Lock) -->
+    <!-- TOP BAR -->
     <LinearLayout
         android:id="@+id/exo_top_bar"
         android:layout_width="match_parent"
@@ -69,10 +69,9 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_lock_open"
             android:contentDescription="Lock" />
-
     </LinearLayout>
 
-    <!-- BOTTOM CONTROLS (anchored to bottom, centered row) -->
+    <!-- BOTTOM CONTROLS (seekbar + centered playback controls) -->
     <LinearLayout
         android:id="@+id/exo_bottom_bar"
         android:layout_width="match_parent"
@@ -114,7 +113,7 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Playback row:  Aspect | Rewind | Play | Forward | Fullscreen  -->
+        <!-- Playback row: Aspect | Rewind | Play | Forward | Fullscreen -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="56dp"
