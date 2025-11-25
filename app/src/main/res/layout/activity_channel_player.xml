@@ -7,7 +7,7 @@
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- Player container. Related channels below. -->
+    <!-- Player container (top) -->
     <FrameLayout
         android:id="@+id/player_container"
         android:layout_width="0dp"
@@ -16,9 +16,10 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/related_channels_section">
+        app:layout_constraintBottom_toTopOf="@id/related_channels_section"
+        app:layout_constraintDimensionRatio="16:9">
 
-        <!-- PlayerView: uses custom controller and fills container -->
+        <!-- PlayerView uses custom controller -->
         <androidx.media3.ui.PlayerView
             android:id="@+id/player_view"
             android:layout_width="match_parent"
@@ -30,9 +31,9 @@
             app:show_timeout="5000"
             app:show_buffering="when_playing"
             app:surface_type="texture_view"
-            app:resize_mode="fill" />
+            app:resize_mode="fit" />
 
-        <!-- Lock overlay above player -->
+        <!-- Lock overlay above player (hidden default) -->
         <FrameLayout
             android:id="@+id/lock_overlay"
             android:layout_width="match_parent"
@@ -103,7 +104,7 @@
 
     </FrameLayout>
 
-    <!-- Related Channels Section -->
+    <!-- Related Channels Section (bottom) -->
     <LinearLayout
         android:id="@+id/related_channels_section"
         android:layout_width="0dp"
