@@ -40,7 +40,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private lateinit var channel: Channel
     private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
-      
+
     // UI Control Elements
     private var exoBack: ImageButton? = null
     private var exoChannelName: TextView? = null
@@ -51,13 +51,15 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var exoAspectRatio: ImageButton? = null
     private var exoPlayPause: ImageButton? = null
     private var exoFullscreen: ImageButton? = null
-      
+    private var exoRewind: ImageButton? = null
+    private var exoForward: ImageButton? = null
+
     // State variables
     private var isFullscreen = false
     private var isLocked = false
     private var isMuted = false
     private var currentAspectRatioIndex = 0
-      
+
     private val aspectRatios = listOf(
         androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
         androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
@@ -93,6 +95,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
             return
         }
 
+        // ensure progress hidden initially
+        binding.progressBar.visibility = View.GONE
+
         setupPlayer()
         setupCustomControls()
         setupRelatedChannels()
@@ -101,6 +106,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun setupPlayer() {
         try {
+            // Release old player if any to avoid re-buffering loops
+            player?.release()
             player = ExoPlayer.Builder(this)
                 .setMediaSourceFactory(
                     DefaultMediaSourceFactory(this)
@@ -115,7 +122,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 .build()
                 .also { exoPlayer ->
                     binding.playerView.player = exoPlayer
-                      
+
                     // Configure PlayerView
                     binding.playerView.useController = true
                     binding.playerView.controllerAutoShow = true
@@ -170,7 +177,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun setupCustomControls() {
-        // Find all controls
+        // Find all controls inside the controller layout
         exoBack = binding.playerView.findViewById(R.id.exo_back)
         exoChannelName = binding.playerView.findViewById(R.id.exo_channel_name)
         exoPip = binding.playerView.findViewById(R.id.exo_pip)
@@ -180,10 +187,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
         exoAspectRatio = binding.playerView.findViewById(R.id.exo_aspect_ratio)
         exoPlayPause = binding.playerView.findViewById(R.id.exo_play_pause)
         exoFullscreen = binding.playerView.findViewById(R.id.exo_fullscreen)
-          
-        // Find lock overlay
-        val lockOverlay: FrameLayout? = binding.playerView.findViewById(R.id.lock_overlay)
-        val unlockButton: ImageButton? = binding.playerView.findViewById(R.id.unlock_button)
+        exoRewind = binding.playerView.findViewById(R.id.exo_rewind)
+        exoForward = binding.playerView.findViewById(R.id.exo_forward)
+
+        // Find lock overlay in activity layout (not controller)
+        val lockOverlay: FrameLayout? = binding.findViewById(R.id.lock_overlay)
+        val unlockButton: ImageButton? = binding.findViewById(R.id.unlock_button)
 
         // Set channel name
         exoChannelName?.text = channel.name
@@ -197,7 +206,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
-        // PiP button - FIX
+        // PiP button
         exoPip?.apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
@@ -220,29 +229,33 @@ class ChannelPlayerActivity : AppCompatActivity() {
             toggleMute()
         }
 
-        // Lock button - FIX
+        // Lock button - show overlay
         exoLock?.setOnClickListener {
             isLocked = true
-
-            // Hide all controls
             binding.playerView.useController = false
-
-            // Show lock overlay with unlock button
             lockOverlay?.visibility = View.VISIBLE
+            unlockButton?.visibility = View.VISIBLE
+            exoLock?.setImageResource(R.drawable.ic_lock_closed)
         }
-          
-        // Unlock button - FIX
+
+        // Tapping overlay toggles unlock button visibility (so user can reveal it)
+        lockOverlay?.setOnClickListener {
+            if (unlockButton?.visibility == View.VISIBLE) {
+                unlockButton.visibility = View.GONE
+            } else {
+                unlockButton?.visibility = View.VISIBLE
+            }
+        }
+
+        // Unlock button
         unlockButton?.setOnClickListener {
             isLocked = false
-
-            // Show controls again
             binding.playerView.useController = true
-
-            // Hide lock overlay
             lockOverlay?.visibility = View.GONE
+            exoLock?.setImageResource(R.drawable.ic_lock_open)
         }
 
-        // Aspect ratio
+        // Aspect ratio button
         exoAspectRatio?.setOnClickListener {
             cycleAspectRatio()
         }
@@ -258,12 +271,27 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
-        // Fullscreen
+        // Rewind / forward
+        exoRewind?.setOnClickListener {
+            player?.let {
+                val newPos = (it.currentPosition - 15000L).coerceAtLeast(0L)
+                it.seekTo(newPos)
+            }
+        }
+        exoForward?.setOnClickListener {
+            player?.let {
+                val dur = if (it.duration > 0) it.duration else Long.MAX_VALUE
+                val newPos = (it.currentPosition + 15000L).coerceAtMost(dur)
+                it.seekTo(newPos)
+            }
+        }
+
+        // Fullscreen button
         exoFullscreen?.setOnClickListener {
             toggleFullscreen()
         }
 
-        // Retry button
+        // Retry button in error view
         binding.retryButton.setOnClickListener {
             binding.errorView.visibility = View.GONE
             setupPlayer()
@@ -287,11 +315,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun loadRelatedChannels() {
         viewModel.loadRelatedChannels(channel.categoryId, channel.id)
-          
+
         viewModel.relatedChannels.observe(this) { channels ->
             relatedChannelsAdapter.submitList(channels)
             binding.relatedCount.text = channels.size.toString()
-              
+
             if (channels.isEmpty()) {
                 binding.relatedChannelsSection.visibility = View.GONE
             }
@@ -301,13 +329,13 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun switchChannel(newChannel: Channel) {
         channel = newChannel
         exoChannelName?.text = channel.name
-          
+
         player?.stop()
         val mediaItem = MediaItem.fromUri(channel.streamUrl)
         player?.setMediaItem(mediaItem)
         player?.prepare()
         player?.playWhenReady = true
-          
+
         binding.errorView.visibility = View.GONE
         binding.progressBar.visibility = View.VISIBLE
     }
@@ -323,17 +351,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun enterFullscreen() {
         isFullscreen = true
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-          
+
         // Hide related channels
         binding.relatedChannelsSection.visibility = View.GONE
-          
+
         // Make player fill screen
         val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
         params.dimensionRatio = null
         params.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
         params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
         binding.playerContainer.layoutParams = params
-          
+
         // Update icon
         exoFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
     }
@@ -341,17 +369,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun exitFullscreen() {
         isFullscreen = false
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-          
+
         // Show related channels
         binding.relatedChannelsSection.visibility = View.VISIBLE
-          
+
         // Restore 16:9
         val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
         params.dimensionRatio = "16:9"
         params.bottomToTop = R.id.related_channels_section
         params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
         binding.playerContainer.layoutParams = params
-          
+
         // Update icon
         exoFullscreen?.setImageResource(R.drawable.ic_fullscreen)
     }
@@ -398,6 +426,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             // Hide UI in PiP mode
             binding.relatedChannelsSection.visibility = View.GONE
             binding.playerView.useController = false
+            // keep player running
         } else {
             // Restore UI
             if (!isFullscreen) {
@@ -416,12 +445,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun hideSystemUI() {
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-        )
+                or View.SYSTEM_UI_FLAG_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            )
     }
 
     override fun onPause() {
@@ -431,8 +460,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
+        // keep player during PiP, otherwise release to free resources
         if (!isInPictureInPictureMode) {
             player?.release()
+            player = null
         }
     }
 
