@@ -1,3 +1,8 @@
+// ===================================
+// FILE: app/build.gradle.kts
+// ACTION: UPDATE - Add these configurations if missing
+// ===================================
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -49,10 +54,15 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        
+        // ⬇️ ADD THIS: Fix for @UnstableApi annotation
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.media3.common.util.UnstableApi"
+        )
     }
 
     buildFeatures {
-        viewBinding = true
+        viewBinding = true  // ⬅️ MAKE SURE THIS IS ENABLED
         buildConfig = true
     }
 
