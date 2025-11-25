@@ -11,9 +11,7 @@ import android.os.Bundle
 import android.util.Rational
 import android.view.View
 import android.view.WindowManager
-import android.widget.FrameLayout
 import android.widget.ImageButton
-import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -31,6 +29,9 @@ import com.livetvpro.databinding.ActivityChannelPlayerBinding
 import com.livetvpro.ui.adapters.RelatedChannelAdapter
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
 
 @UnstableApi
 @AndroidEntryPoint
@@ -45,7 +46,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     // controller views (nullable)
     private var exoBack: ImageButton? = null
-    private var exoChannelName: TextView? = null
+    private var exoChannelName: View? = null
     private var exoPip: ImageButton? = null
     private var exoSettings: ImageButton? = null
     private var exoMute: ImageButton? = null
@@ -87,7 +88,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         val screenWidth = resources.displayMetrics.widthPixels
         val expected16by9Height = (screenWidth * 9f / 16f).toInt()
         val containerParams = binding.playerContainer.layoutParams
-        if (containerParams is androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) {
+        if (containerParams is ConstraintLayout.LayoutParams) {
             containerParams.height = expected16by9Height
             containerParams.dimensionRatio = null
             binding.playerContainer.layoutParams = containerParams
@@ -157,14 +158,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                     val vw = videoSize.width
                                     val vh = videoSize.height
                                     if (vw > 0 && vh > 0) {
-                                        val screenWidth = binding.playerView.width.takeIf { it > 0 }
+                                        val screenW = binding.playerView.width.takeIf { it > 0 }
                                             ?: resources.displayMetrics.widthPixels
-                                        val desiredHeight = (screenWidth.toFloat() * vh.toFloat() / vw.toFloat()).toInt()
+                                        val desiredHeight = (screenW.toFloat() * vh.toFloat() / vw.toFloat()).toInt()
 
                                         val params =
-                                            binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+                                            binding.playerContainer.layoutParams as ConstraintLayout.LayoutParams
                                         // update only if difference is meaningful to avoid jitter
-                                        if (kotlin.math.abs(params.height - desiredHeight) > 4) {
+                                        if (abs(params.height - desiredHeight) > 4) {
                                             params.height = desiredHeight
                                             params.dimensionRatio = null
                                             binding.playerContainer.layoutParams = params
@@ -213,7 +214,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun setupCustomControls() {
-        // find controller views inside PlayerView
+        // find controller views inside PlayerView (via binding)
         exoBack = binding.playerView.findViewById(R.id.exo_back)
         exoChannelName = binding.playerView.findViewById(R.id.exo_channel_name)
         exoPip = binding.playerView.findViewById(R.id.exo_pip)
@@ -226,13 +227,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
         exoRewind = binding.playerView.findViewById(R.id.exo_rewind)
         exoForward = binding.playerView.findViewById(R.id.exo_forward)
 
-        // overlay in activity root
-        val lockOverlay: FrameLayout? = findViewById(R.id.lock_overlay)
-        val unlockButton: ImageButton? = findViewById(R.id.unlock_button)
+        val lockOverlay = binding.lockOverlay
+        val unlockButton = binding.unlockButton
 
-        exoChannelName?.text = channel.name
+        (exoChannelName as? android.widget.TextView)?.text = channel.name
 
-        // ensure fullscreen button exists and is visible — copy to local val to avoid smart-cast error
+        // ensure fullscreen button exists and is visible — copy to local val to avoid smart-cast issues
         val fullscreenBtn = exoFullscreen
         if (fullscreenBtn == null) {
             Timber.e("exo_fullscreen not found — check controller layout id and file")
@@ -261,20 +261,20 @@ class ChannelPlayerActivity : AppCompatActivity() {
         exoLock?.setOnClickListener {
             isLocked = true
             binding.playerView.useController = false
-            lockOverlay?.visibility = View.VISIBLE
-            unlockButton?.visibility = View.VISIBLE
+            lockOverlay.visibility = View.VISIBLE
+            unlockButton.visibility = View.VISIBLE
             exoLock?.setImageResource(R.drawable.ic_lock_closed)
         }
 
-        lockOverlay?.setOnClickListener {
-            if (unlockButton?.visibility == View.VISIBLE) unlockButton.visibility = View.GONE
-            else unlockButton?.visibility = View.VISIBLE
+        lockOverlay.setOnClickListener {
+            // toggle unlock button visibility (quick peek)
+            unlockButton.visibility = if (unlockButton.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }
 
-        unlockButton?.setOnClickListener {
+        unlockButton.setOnClickListener {
             isLocked = false
             binding.playerView.useController = true
-            lockOverlay?.visibility = View.GONE
+            lockOverlay.visibility = View.GONE
             exoLock?.setImageResource(R.drawable.ic_lock_open)
         }
 
@@ -333,7 +333,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun switchChannel(newChannel: Channel) {
         channel = newChannel
-        exoChannelName?.text = channel.name
+        (exoChannelName as? android.widget.TextView)?.text = channel.name
 
         player?.stop()
         val mediaItem = MediaItem.fromUri(channel.streamUrl)
@@ -399,7 +399,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         player?.let { exoPlayPause?.setImageResource(if (it.isPlaying) R.drawable.ic_pause else R.drawable.ic_play) }
     }
 
-    // PiP: hide other UI first, post a layout pass, then enter PiP so only player surface is captured
+    // PiP: hide other UI first, post a layout pass, then enter PiP so mainly player surface is captured
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // hide UI
@@ -407,7 +407,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             binding.relatedChannelsSection.visibility = View.GONE
             binding.errorView.visibility = View.GONE
             binding.progressBar.visibility = View.GONE
-            findViewById<FrameLayout>(R.id.lock_overlay)?.visibility = View.GONE
+            binding.lockOverlay.visibility = View.GONE
 
             // give layout a chance to settle
             binding.playerContainer.post {
