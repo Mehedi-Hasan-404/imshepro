@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <merge xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Top bar -->
+    <!-- Top bar: Back, Channel name, top actions (PiP, settings, volume, lock) -->
     <RelativeLayout
         android:id="@+id/exo_top_bar"
         android:layout_width="match_parent"
@@ -75,19 +75,18 @@
         </LinearLayout>
     </RelativeLayout>
 
-    <!-- spacer -->
+    <!-- Spacer to allow video to show in middle -->
     <View
         android:layout_width="match_parent"
         android:layout_height="0dp" />
 
-    <!-- Bottom controls container -->
+    <!-- Bottom controls container (seekbar on top of bottom bar) -->
     <LinearLayout
         android:id="@+id/exo_bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="12dp"
-        android:background="@android:color/transparent">
+        android:padding="12dp">
 
         <!-- Seekbar + times -->
         <LinearLayout
@@ -104,6 +103,7 @@
                 android:textColor="@android:color/white"
                 android:textSize="12sp" />
 
+            <!-- DefaultTimeBar binds automatically with PlayerView using id = @id/exo_progress -->
             <androidx.media3.ui.DefaultTimeBar
                 android:id="@id/exo_progress"
                 android:layout_width="0dp"
