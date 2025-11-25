@@ -43,7 +43,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private lateinit var channel: Channel
     private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
 
-    // controller views
+    // controller views (nullable)
     private var exoBack: ImageButton? = null
     private var exoChannelName: TextView? = null
     private var exoPip: ImageButton? = null
@@ -137,14 +137,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     exoPlayer.addListener(object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            // resize player_container height so video starts at top (no vertical centering)
+                            // resize player_container height so video starts at top (avoid vertical centering)
                             runOnUiThread {
                                 try {
                                     val vw = videoSize.width
                                     val vh = videoSize.height
                                     if (vw > 0 && vh > 0) {
-                                        val screenWidth =
-                                            binding.playerView.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+                                        val screenWidth = binding.playerView.width.takeIf { it > 0 }
+                                            ?: resources.displayMetrics.widthPixels
                                         val desiredHeight = (screenWidth.toFloat() * vh.toFloat() / vw.toFloat()).toInt()
 
                                         val params =
@@ -215,11 +215,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         exoChannelName?.text = channel.name
 
-        // ensure fullscreen button exists and is visible
-        if (exoFullscreen == null) {
+        // ensure fullscreen button exists and is visible — read into local val to avoid smart cast issues
+        val fullscreenBtn = exoFullscreen
+        if (fullscreenBtn == null) {
             Timber.e("exo_fullscreen not found — check controller layout id and file")
         } else {
-            exoFullscreen.visibility = View.VISIBLE
+            fullscreenBtn.visibility = View.VISIBLE
         }
 
         // aspect hidden in portrait by default
@@ -236,7 +237,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             } else visibility = View.GONE
         }
 
-        exoSettings?.setOnClickListener { /* TODO: open settings */ }
+        exoSettings?.setOnClickListener { /* TODO: settings */ }
 
         exoMute?.setOnClickListener { toggleMute() }
 
