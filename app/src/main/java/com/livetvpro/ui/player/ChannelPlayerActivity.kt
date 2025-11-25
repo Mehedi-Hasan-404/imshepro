@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.DefaultTimeBar
+import androidx.media3.ui.TimeBar  // ⬅️ ADDED THIS IMPORT
 import androidx.recyclerview.widget.GridLayoutManager
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
@@ -154,8 +155,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                     binding.progressBar.isVisible = false
                                     binding.errorView.isVisible = false
                                     updatePlayPauseIcon()
-                                    // When ready, ensure top controls anchored at top (no layout changes needed here,
-                                    // but you might animate or adjust spacing if you changed layout at runtime)
+                                    // When ready, ensure top controls anchored at top
                                 }
                                 Player.STATE_ENDED -> {
                                     showError("Stream ended")
@@ -301,15 +301,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
 
         // Optional: wire timeBar to seek if you want simple behaviour
-        timeBar?.addListener(object : DefaultTimeBar.OnScrubListener {
-            override fun onScrubStart(timeBar: DefaultTimeBar, position: Long) { /* no-op */ }
-            override fun onScrubMove(timeBar: DefaultTimeBar, position: Long) { /* no-op */ }
-            override fun onScrubStop(timeBar: DefaultTimeBar, position: Long, canceled: Boolean) {
+        // ⬇️ FIXED: Use TimeBar.OnScrubListener instead of DefaultTimeBar.OnScrubListener
+        timeBar?.addListener(object : TimeBar.OnScrubListener {
+            override fun onScrubStart(timeBar: TimeBar, position: Long) { /* no-op */ }
+            override fun onScrubMove(timeBar: TimeBar, position: Long) { /* no-op */ }
+            override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
                 player?.seekTo(position)
             }
         })
-
-        // When player becomes available, we will update play/pause drawable (done in listener)
     }
 
     private fun setupRelatedChannels() {
