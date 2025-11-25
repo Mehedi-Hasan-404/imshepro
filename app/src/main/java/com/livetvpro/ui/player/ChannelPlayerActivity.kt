@@ -83,6 +83,20 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // --- Option A: force expected 16:9 height immediately so PlayerView + top controls start at top ---
+        val screenWidth = resources.displayMetrics.widthPixels
+        val expected16by9Height = (screenWidth * 9f / 16f).toInt()
+        val containerParams = binding.playerContainer.layoutParams
+        if (containerParams is androidx.constraintlayout.widget.ConstraintLayout.LayoutParams) {
+            containerParams.height = expected16by9Height
+            containerParams.dimensionRatio = null
+            binding.playerContainer.layoutParams = containerParams
+        } else {
+            containerParams.height = expected16by9Height
+            binding.playerContainer.layoutParams = containerParams
+        }
+        // -------------------------------------------------------------------------------------------
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -137,7 +151,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     exoPlayer.addListener(object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            // resize player_container height so video starts at top (avoid vertical centering)
+                            // guarded update: only change container height if difference is significant
                             runOnUiThread {
                                 try {
                                     val vw = videoSize.width
@@ -149,9 +163,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
                                         val params =
                                             binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-                                        params.height = desiredHeight
-                                        params.dimensionRatio = null
-                                        binding.playerContainer.layoutParams = params
+                                        // update only if difference is meaningful to avoid jitter
+                                        if (kotlin.math.abs(params.height - desiredHeight) > 4) {
+                                            params.height = desiredHeight
+                                            params.dimensionRatio = null
+                                            binding.playerContainer.layoutParams = params
+                                        }
                                     }
                                 } catch (e: Exception) {
                                     Timber.w(e, "failed to apply video size/layout")
@@ -345,7 +362,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         exoAspectRatio?.visibility = View.VISIBLE
 
-        // set fullscreen icon safely
         val fullscreenBtn = exoFullscreen
         fullscreenBtn?.setImageResource(R.drawable.ic_fullscreen_exit)
 
