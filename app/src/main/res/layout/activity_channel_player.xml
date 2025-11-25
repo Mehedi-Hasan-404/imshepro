@@ -19,11 +19,12 @@
         app:layout_constraintBottom_toTopOf="@id/related_channels_section"
         app:layout_constraintDimensionRatio="16:9">
 
-        <!-- PlayerView uses custom controller -->
+        <!-- PlayerView uses custom controller; child is anchored to TOP so it doesn't vertically center -->
         <androidx.media3.ui.PlayerView
             android:id="@+id/player_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_gravity="top"
             app:controller_layout_id="@layout/exo_modern_player_controls"
             app:use_controller="true"
             app:auto_show="true"
