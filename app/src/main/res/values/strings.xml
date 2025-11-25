@@ -4,7 +4,16 @@
     <!-- App -->
     <string name="app_name">LiveTVPro</string>
 
-    <!-- Player control strings -->
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_live">Live TV</string>
+    <string name="nav_contact">Contact</string>
+
+    <!-- Favorites -->
+    <string name="no_favorites">No favorite channels found</string>
+    <string name="clear_all">Clear All</string>
+
+    <!-- Player controls -->
     <string name="back">Back</string>
     <string name="pip">Picture-in-Picture</string>
     <string name="settings">Settings</string>
@@ -19,7 +28,7 @@
     <string name="fullscreen">Fullscreen</string>
     <string name="exit_fullscreen">Exit Fullscreen</string>
 
-    <!-- Error messages -->
+    <!-- Errors -->
     <string name="error_loading_stream">Error loading stream</string>
     <string name="network_error">Network error</string>
     <string name="server_error">Server error</string>
