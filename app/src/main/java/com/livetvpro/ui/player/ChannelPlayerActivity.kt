@@ -407,11 +407,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // FIXED PIP - proper aspect ratio and hide UI
+    // PROPER PIP - Only PiP the video, don't hide anything
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                // Get actual video dimensions
+                // Get actual video dimensions from player
                 val videoWidth = player?.videoSize?.width ?: 16
                 val videoHeight = player?.videoSize?.height ?: 9
                 
@@ -425,11 +425,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     .setAspectRatio(aspectRatio)
                     .build()
                     
+                // Just enter PiP - Android will extract the video surface automatically
+                // DON'T hide any UI here - let it stay as is
                 enterPictureInPictureMode(params)
-                
-                // Hide UI for clean PiP
-                binding.relatedChannelsSection.visibility = View.GONE
-                binding.playerView.useController = false
                 
             } catch (e: Exception) {
                 Timber.e(e, "Failed to enter PiP mode")
@@ -443,18 +441,23 @@ class ChannelPlayerActivity : AppCompatActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        
         if (isInPictureInPictureMode) {
-            // In PiP - hide everything
-            binding.relatedChannelsSection.visibility = View.GONE
+            // Entered PiP mode - hide controls for clean video-only view
             binding.playerView.useController = false
+            binding.relatedChannelsSection.visibility = View.GONE
             binding.lockOverlay.visibility = View.GONE
             binding.errorView.visibility = View.GONE
+            binding.progressBar.visibility = View.GONE
         } else {
-            // Exited PiP - restore UI
+            // Exited PiP mode - restore normal UI
             if (!isFullscreen) {
                 binding.relatedChannelsSection.visibility = View.VISIBLE
             }
             binding.playerView.useController = !isLocked
+            
+            // Restore other UI elements if they were visible
+            // progressBar and errorView will be controlled by player state
         }
     }
 
