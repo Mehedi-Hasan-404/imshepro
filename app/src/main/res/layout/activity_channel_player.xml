@@ -34,7 +34,7 @@
             app:surface_type="texture_view"
             app:resize_mode="fit" />
 
-        <!-- Lock overlay above player (hidden by default) -->
+        <!-- Lock overlay - NO SHADOW, NO TEXT, just transparent overlay -->
         <FrameLayout
             android:id="@+id/lock_overlay"
             android:layout_width="match_parent"
@@ -43,37 +43,23 @@
             android:clickable="true"
             android:focusable="true"
             android:elevation="20dp"
-            android:background="#CC000000">
+            android:background="@android:color/transparent">
 
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:orientation="vertical"
-                android:gravity="center">
-
-                <ImageButton
-                    android:id="@+id/unlock_button"
-                    android:layout_width="80dp"
-                    android:layout_height="80dp"
-                    android:background="@drawable/circular_button_bg"
-                    android:src="@drawable/ic_lock_closed"
-                    android:tint="@android:color/white"
-                    android:contentDescription="Tap to unlock"
-                    android:scaleType="centerInside"
-                    android:padding="16dp" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="Tap anywhere to show/hide unlock"
-                    android:textColor="@android:color/white"
-                    android:textSize="14sp"
-                    android:alpha="0.8"
-                    android:gravity="center" />
-
-            </LinearLayout>
+            <!-- Unlock button at TOP RIGHT (same position as lock icon) -->
+            <ImageButton
+                android:id="@+id/unlock_button"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="4dp"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/circular_button_bg"
+                android:src="@drawable/ic_lock_closed"
+                android:tint="@android:color/white"
+                android:contentDescription="Unlock"
+                android:scaleType="centerInside"
+                android:padding="12dp"
+                android:visibility="gone" />
 
         </FrameLayout>
 
