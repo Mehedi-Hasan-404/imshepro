@@ -83,19 +83,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Force expected 16:9 height
-        val screenWidth = resources.displayMetrics.widthPixels
-        val expected16by9Height = (screenWidth * 9f / 16f).toInt()
-        val containerParams = binding.playerContainer.layoutParams
-        if (containerParams is ConstraintLayout.LayoutParams) {
-            containerParams.height = expected16by9Height
-            containerParams.dimensionRatio = null
-            binding.playerContainer.layoutParams = containerParams
-        } else {
-            containerParams.height = expected16by9Height
-            binding.playerContainer.layoutParams = containerParams
-        }
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -150,25 +137,25 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     exoPlayer.addListener(object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
+                            // Only update layout if video size is valid
                             runOnUiThread {
                                 try {
                                     val vw = videoSize.width
                                     val vh = videoSize.height
-                                    if (vw > 0 && vh > 0) {
-                                        val screenW = binding.playerView.width.takeIf { it > 0 }
-                                            ?: resources.displayMetrics.widthPixels
+                                    if (vw > 0 && vh > 0 && !isFullscreen) {
+                                        val screenW = resources.displayMetrics.widthPixels
                                         val desiredHeight = (screenW.toFloat() * vh.toFloat() / vw.toFloat()).toInt()
 
-                                        val params =
-                                            binding.playerContainer.layoutParams as ConstraintLayout.LayoutParams
-                                        if (abs(params.height - desiredHeight) > 4) {
+                                        val params = binding.playerContainer.layoutParams as ConstraintLayout.LayoutParams
+                                        // Only update if different
+                                        if (abs(params.height - desiredHeight) > 10) {
                                             params.height = desiredHeight
                                             params.dimensionRatio = null
                                             binding.playerContainer.layoutParams = params
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    Timber.w(e, "failed to apply video size/layout")
+                                    Timber.w(e, "Failed to apply video size")
                                 }
                             }
                         }
@@ -407,7 +394,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // PROPER PIP - Only PiP the video, don't hide anything
+    // PROPER PIP - Only PiP the video surface, not the whole activity
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -421,12 +408,16 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     Rational(16, 9)
                 }
 
+                // Get the PlayerView's position on screen to tell Android where the video is
+                val sourceRectHint = android.graphics.Rect()
+                binding.playerView.getGlobalVisibleRect(sourceRectHint)
+
                 val params = PictureInPictureParams.Builder()
                     .setAspectRatio(aspectRatio)
+                    .setSourceRectHint(sourceRectHint) // ← CRITICAL: Tell Android where video surface is
                     .build()
                     
-                // Just enter PiP - Android will extract the video surface automatically
-                // DON'T hide any UI here - let it stay as is
+                // Just enter PiP - Android will extract ONLY the video surface
                 enterPictureInPictureMode(params)
                 
             } catch (e: Exception) {
