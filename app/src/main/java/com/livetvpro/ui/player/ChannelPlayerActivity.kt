@@ -83,6 +83,20 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Set initial 16:9 height to prevent jumping
+        binding.playerView.post {
+            val screenWidth = resources.displayMetrics.widthPixels
+            val height16by9 = (screenWidth * 9f / 16f).toInt()
+            
+            val playerParams = binding.playerView.layoutParams
+            playerParams.height = height16by9
+            binding.playerView.layoutParams = playerParams
+            
+            val containerParams = binding.playerContainer.layoutParams
+            containerParams.height = height16by9
+            binding.playerContainer.layoutParams = containerParams
+        }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -137,27 +151,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     exoPlayer.addListener(object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            // Only update layout if video size is valid
-                            runOnUiThread {
-                                try {
-                                    val vw = videoSize.width
-                                    val vh = videoSize.height
-                                    if (vw > 0 && vh > 0 && !isFullscreen) {
-                                        val screenW = resources.displayMetrics.widthPixels
-                                        val desiredHeight = (screenW.toFloat() * vh.toFloat() / vw.toFloat()).toInt()
-
-                                        val params = binding.playerContainer.layoutParams as ConstraintLayout.LayoutParams
-                                        // Only update if different
-                                        if (abs(params.height - desiredHeight) > 10) {
-                                            params.height = desiredHeight
-                                            params.dimensionRatio = null
-                                            binding.playerContainer.layoutParams = params
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    Timber.w(e, "Failed to apply video size")
-                                }
-                            }
+                            // Don't adjust layout - keep fixed 16:9
+                            // This prevents jumping and layout shifts
                         }
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -394,31 +389,46 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // PROPER PIP - Only PiP the video surface, not the whole activity
+    // PROPER PIP - Hide controls FIRST, then enter PiP with only video
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                // Get actual video dimensions from player
-                val videoWidth = player?.videoSize?.width ?: 16
-                val videoHeight = player?.videoSize?.height ?: 9
+                // STEP 1: Hide controls immediately BEFORE entering PiP
+                binding.playerView.useController = false
+                binding.playerView.hideController()
                 
-                val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
-                    Rational(videoWidth, videoHeight)
-                } else {
-                    Rational(16, 9)
-                }
+                // STEP 2: Wait a tiny bit for UI to update
+                binding.playerView.postDelayed({
+                    try {
+                        // Get actual video dimensions from player
+                        val videoWidth = player?.videoSize?.width ?: 16
+                        val videoHeight = player?.videoSize?.height ?: 9
+                        
+                        val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
+                            Rational(videoWidth, videoHeight)
+                        } else {
+                            Rational(16, 9)
+                        }
 
-                // Get the PlayerView's position on screen to tell Android where the video is
-                val sourceRectHint = android.graphics.Rect()
-                binding.playerView.getGlobalVisibleRect(sourceRectHint)
+                        // Get the PlayerView's position on screen
+                        val sourceRectHint = android.graphics.Rect()
+                        binding.playerView.getGlobalVisibleRect(sourceRectHint)
 
-                val params = PictureInPictureParams.Builder()
-                    .setAspectRatio(aspectRatio)
-                    .setSourceRectHint(sourceRectHint) // ← CRITICAL: Tell Android where video surface is
-                    .build()
-                    
-                // Just enter PiP - Android will extract ONLY the video surface
-                enterPictureInPictureMode(params)
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(aspectRatio)
+                            .setSourceRectHint(sourceRectHint)
+                            .build()
+                            
+                        // STEP 3: Enter PiP - now it will capture only video (no controls)
+                        enterPictureInPictureMode(params)
+                        
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to enter PiP mode")
+                        Toast.makeText(this, "PiP not available", Toast.LENGTH_SHORT).show()
+                        // Restore controls if PiP fails
+                        binding.playerView.useController = true
+                    }
+                }, 100) // 100ms delay to ensure controls are hidden
                 
             } catch (e: Exception) {
                 Timber.e(e, "Failed to enter PiP mode")
