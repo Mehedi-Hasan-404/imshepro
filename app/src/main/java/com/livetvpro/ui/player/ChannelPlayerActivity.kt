@@ -28,7 +28,6 @@ import com.livetvpro.databinding.ActivityChannelPlayerBinding
 import com.livetvpro.ui.adapters.RelatedChannelAdapter
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
-import kotlin.math.abs
 
 @UnstableApi
 @AndroidEntryPoint
@@ -44,7 +43,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     // controller views (nullable)
     private var exoBack: ImageButton? = null
     private var exoPip: ImageButton? = null
-    private var exoSettings: ImageButton? = null
     private var exoMute: ImageButton? = null
     private var exoLock: ImageButton? = null
     private var exoAspectRatio: ImageButton? = null
@@ -80,7 +78,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Set initial 16:9 height to prevent jumping
+        // Set initial 16:9 height to prevent jumping (optional)
         binding.playerView.post {
             val screenWidth = resources.displayMetrics.widthPixels
             val height16by9 = (screenWidth * 9f / 16f).toInt()
@@ -118,7 +116,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun observeViewModel() {
-        // If your PlayerViewModel exposes related channels, observe here and feed adapter
         viewModel.relatedChannels.observe(this) { list ->
             relatedChannelsAdapter.submitList(list)
             binding.relatedChannelsSection.visibility =
@@ -163,7 +160,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     exoPlayer.addListener(object : Player.Listener {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            // keep layout stable - we use fixed 16:9 container to avoid jump
                         }
 
                         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -198,10 +194,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun setupCustomControls() {
-        // find controller views inside PlayerView (ids defined in exo_modern_player_controls.xml)
+        // find controller views inside PlayerView (ids defined in your controller layout)
         exoBack = binding.playerView.findViewById(com.livetvpro.R.id.exo_back)
         exoPip = binding.playerView.findViewById(com.livetvpro.R.id.exo_pip)
-        exoSettings = binding.playerView.findViewById(com.livetvpro.R.id.exo_settings)
         exoMute = binding.playerView.findViewById(com.livetvpro.R.id.exo_mute)
         exoLock = binding.playerView.findViewById(com.livetvpro.R.id.exo_lock)
         exoAspectRatio = binding.playerView.findViewById(com.livetvpro.R.id.exo_aspect_ratio)
@@ -279,8 +274,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun loadRelatedChannels() {
-        // If viewModel provides related channels, observeViewModel will handle
-        // otherwise ensure container visibility consistent with adapter
         binding.relatedChannelsSection.visibility =
             if (relatedChannelsAdapter.currentList.isEmpty()) View.GONE else View.VISIBLE
     }
@@ -306,12 +299,26 @@ class ChannelPlayerActivity : AppCompatActivity() {
             return
         }
 
-        // 1) Hide non-video UI immediately
+        // 1) Hide non-video UI & disable controller auto-show
         hideNonVideoUiForPip()
 
-        // 2) Post to next frame so layout changes apply and PlayerView coordinates are up-to-date
+        // 2) Post a tiny delay to ensure UI changes are applied before entering PiP.
+        // This helps on some devices where immediate PiP entry still captures visible controller.
         binding.playerView.post {
-            enterPipUsingPlayerViewRect()
+            binding.playerView.postDelayed({
+                // extra defensive hide just before PiP
+                try {
+                    binding.playerView.controllerAutoShow = false
+                    binding.playerView.useController = false
+                    binding.playerView.hideController()
+                    // Defensive: hide internal exo controller view if present
+                    val exoControllerId = com.google.android.exoplayer2.ui.R.id.exo_controller
+                    binding.playerView.findViewById<View?>(exoControllerId)?.visibility = View.GONE
+                } catch (t: Throwable) {
+                    Timber.w(t, "Could not fully hide controller before PiP")
+                }
+                enterPipUsingPlayerViewRect()
+            }, 50) // 50ms gives the UI a moment to settle; small enough to be imperceptible
         }
     }
 
@@ -322,9 +329,18 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.errorView.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
 
-        // Hide the controller UI so it does not appear in PiP
+        // Disable auto-show and hide controller immediately
+        binding.playerView.controllerAutoShow = false
         binding.playerView.useController = false
         binding.playerView.hideController()
+
+        // Defensive: hide the internal ExoPlayer controller view by id (so it cannot auto-appear)
+        try {
+            val exoControllerId = com.google.android.exoplayer2.ui.R.id.exo_controller
+            binding.playerView.findViewById<View?>(exoControllerId)?.visibility = View.GONE
+        } catch (t: Throwable) {
+            Timber.w(t, "Could not force-hide exo controller view")
+        }
     }
 
     private fun restoreUiAfterPip() {
@@ -333,7 +349,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.errorView.visibility = View.GONE
         binding.progressBar.visibility = View.GONE
 
-        binding.playerView.useController = true
+        binding.playerView.controllerAutoShow = true
+        binding.playerView.useController = !isLocked
     }
 
     private fun enterPipUsingPlayerViewRect() {
@@ -350,6 +367,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 val bottom = top + binding.playerView.height
                 val sourceRect = Rect(left, top, right, bottom)
 
+                Timber.d("enterPipUsingPlayerViewRect: $sourceRect (w=${binding.playerView.width}, h=${binding.playerView.height})")
+
                 // compute aspect ratio - prefer actual video size if available
                 val videoWidth = player?.videoSize?.width ?: binding.playerView.width.takeIf { it > 0 } ?: 16
                 val videoHeight = player?.videoSize?.height ?: binding.playerView.height.takeIf { it > 0 } ?: 9
@@ -363,7 +382,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 enterPictureInPictureMode(params)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to enter PiP mode")
-                // If PiP fails, restore UI so user can continue
                 restoreUiAfterPip()
             }
         } else {
@@ -379,8 +397,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
-            // In PiP: keep only the video
-            binding.playerView.useController = false
+            // In PiP: aggressively ensure only video is visible
+            try {
+                binding.playerView.controllerAutoShow = false
+                binding.playerView.useController = false
+                binding.playerView.hideController()
+                val exoControllerId = com.google.android.exoplayer2.ui.R.id.exo_controller
+                binding.playerView.findViewById<View?>(exoControllerId)?.visibility = View.GONE
+            } catch (t: Throwable) {
+                Timber.w(t, "Could not fully hide controller in PiP")
+            }
+
             binding.relatedChannelsSection.visibility = View.GONE
             binding.lockOverlay.visibility = View.GONE
             binding.errorView.visibility = View.GONE
@@ -390,7 +417,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             // Out of PiP: restore UI
             supportActionBar?.show()
             restoreUiAfterPip()
-            binding.playerView.useController = !isLocked
         }
     }
 
@@ -433,7 +459,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Don't release player when entering PiP. Release only when appropriate for your flow.
+        // Do not release player when entering PiP; release when appropriate for your flow.
     }
 
     override fun onDestroy() {
