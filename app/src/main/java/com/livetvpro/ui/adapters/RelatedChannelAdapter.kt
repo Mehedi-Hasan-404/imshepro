@@ -43,7 +43,6 @@ class RelatedChannelAdapter(
         fun bind(channel: Channel) {
             binding.channelName.text = channel.name
 
-            // Load logo with Glide
             Glide.with(binding.channelLogo)
                 .load(channel.logoUrl)
                 .placeholder(R.drawable.ic_channel_placeholder)
