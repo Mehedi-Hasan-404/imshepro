@@ -22,10 +22,8 @@ class PlayerViewModel @Inject constructor(
     private val _relatedChannels = MutableLiveData<List<Channel>>()
     val relatedChannels: LiveData<List<Channel>> = _relatedChannels
 
-    fun isFavorite(channelId: String): LiveData<Boolean> {
-        val liveData = MutableLiveData<Boolean>()
-        liveData.value = favoritesRepository.isFavorite(channelId)
-        return liveData
+    fun isFavorite(channelId: String): Boolean {
+        return favoritesRepository.isFavorite(channelId)
     }
 
     fun toggleFavorite(channel: Channel) {
@@ -46,19 +44,16 @@ class PlayerViewModel @Inject constructor(
     fun loadRelatedChannels(categoryId: String, currentChannelId: String) {
         viewModelScope.launch {
             try {
-                Timber.d("Loading related channels for category: $categoryId")
-                
                 // Get all channels from the same category
                 val allChannels = channelRepository.getChannelsByCategory(categoryId)
-                
-                // Filter out the current channel and limit to 10 channels
+
+                // Filter out the current channel, shuffle, and take 10
                 val related = allChannels
                     .filter { it.id != currentChannelId }
-                    .shuffled() // Randomize for variety
+                    .shuffled()
                     .take(10)
-                
+
                 _relatedChannels.value = related
-                Timber.d("Loaded ${related.size} related channels")
             } catch (e: Exception) {
                 Timber.e(e, "Error loading related channels")
                 _relatedChannels.value = emptyList()
