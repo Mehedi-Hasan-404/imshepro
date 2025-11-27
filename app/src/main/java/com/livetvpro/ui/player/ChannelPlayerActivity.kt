@@ -1,34 +1,41 @@
 package com.livetvpro.ui.player
 
-import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
-import android.view.View
-import android.view.WindowManager
+import android.view.*
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.core.view.children
+import androidx.core.view.isVisible
+import com.google.android.material.snackbar.Snackbar
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
 import com.livetvpro.databinding.ActivityChannelPlayerBinding
+import com.livetvpro.databinding.FloatingPlayerViewBinding
 import com.livetvpro.ui.adapters.RelatedChannelAdapter
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.common.Player
+import androidx.media3.ui.PlayerView
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import android.widget.FrameLayout
+import kotlin.math.max
+import kotlin.math.min
 
-@UnstableApi
 @AndroidEntryPoint
 class ChannelPlayerActivity : AppCompatActivity() {
 
@@ -39,30 +46,13 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private lateinit var channel: Channel
     private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
 
-    // Controller views
-    private var exoBack: ImageButton? = null
-    private var exoChannelName: View? = null
+    // controller views (nullable)
     private var exoPip: ImageButton? = null
-    private var exoSettings: ImageButton? = null
-    private var exoMute: ImageButton? = null
-    private var exoLock: ImageButton? = null
-    private var exoAspectRatio: ImageButton? = null
-    private var exoPlayPause: ImageButton? = null
     private var exoFullscreen: ImageButton? = null
-    private var exoRewind: ImageButton? = null
-    private var exoForward: ImageButton? = null
 
-    // State
-    private var isFullscreen = false
-    private var isLocked = false
-    private var isMuted = false
-    private var currentAspectRatioIndex = 0
-
-    private val aspectRatios = listOf(
-        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
-        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
-        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-    )
+    // floating mini-player state
+    private var isFloating = false
+    private var touchSlop = 0
 
     companion object {
         private const val EXTRA_CHANNEL = "extra_channel"
@@ -79,11 +69,23 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Keep screen on
+        touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+
+        // Keep previous behaviour - set initial 16:9
+        binding.playerView.post {
+            val screenWidth = resources.displayMetrics.widthPixels
+            val height16by9 = (screenWidth * 9f / 16f).toInt()
+
+            binding.playerView.layoutParams = binding.playerView.layoutParams.apply {
+                height = height16by9
+            }
+            binding.playerContainer.layoutParams = binding.playerContainer.layoutParams.apply {
+                height = height16by9
+            }
+        }
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUI()
-        
-        // START IN PORTRAIT MODE - Fixed at top
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
 
         channel = intent.getParcelableExtra(EXTRA_CHANNEL) ?: run {
@@ -92,14 +94,18 @@ class ChannelPlayerActivity : AppCompatActivity() {
             return
         }
 
-        binding.progressBar.visibility = View.GONE
+        binding.progressBar.visibility = android.view.View.GONE
 
         setupPlayer()
         setupCustomControls()
         setupRelatedChannels()
         loadRelatedChannels()
+        setupFloatingContainer() // prepare floating container UI
     }
 
+    // ------------------------
+    // Player initialization
+    // ------------------------
     private fun setupPlayer() {
         try {
             player?.release()
@@ -116,12 +122,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 )
                 .build()
                 .also { exoPlayer ->
+                    // attach to the PlayerView (binding.playerView)
                     binding.playerView.player = exoPlayer
-                    binding.playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // default UI controller behavior
                     binding.playerView.useController = true
                     binding.playerView.controllerAutoShow = true
-                    binding.playerView.controllerShowTimeoutMs = 5000
+                    binding.playerView.controllerShowTimeoutMs = 3000
 
+                    // prepare and start
                     val mediaItem = MediaItem.fromUri(channel.streamUrl)
                     exoPlayer.setMediaItem(mediaItem)
                     exoPlayer.prepare()
@@ -131,328 +139,365 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             when (playbackState) {
                                 Player.STATE_BUFFERING -> {
-                                    binding.progressBar.visibility = View.VISIBLE
-                                    binding.errorView.visibility = View.GONE
+                                    binding.loadingProgress.visibility = android.view.View.VISIBLE
+                                    binding.errorView.visibility = android.view.View.GONE
                                 }
                                 Player.STATE_READY -> {
-                                    binding.progressBar.visibility = View.GONE
-                                    binding.errorView.visibility = View.GONE
-                                    updatePlayPauseIcon()
+                                    binding.loadingProgress.visibility = android.view.View.GONE
+                                    binding.errorView.visibility = android.view.View.GONE
                                 }
-                                Player.STATE_ENDED -> showError("Stream ended")
+                                Player.STATE_ENDED -> {
+                                    showError("Stream ended")
+                                }
                             }
                         }
 
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                            binding.progressBar.visibility = View.GONE
-                            val msg = when (error.errorCode) {
-                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "Server error"
-                                androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> "Network error"
-                                else -> "Playback failed"
-                            }
-                            showError(msg)
-                        }
-
-                        override fun onIsPlayingChanged(isPlaying: Boolean) {
-                            updatePlayPauseIcon()
+                            Timber.e(error, "Playback error for ${channel.name}")
+                            binding.loadingProgress.visibility = android.view.View.GONE
+                            showError("Playback failed: ${error.message ?: "Unknown error"}")
                         }
                     })
                 }
+            Timber.d("Player initialized for ${channel.name}")
         } catch (e: Exception) {
-            Timber.e(e, "Failed to setup player")
-            showError("Failed to initialize player")
+            Timber.e(e, "Failed to initialize player")
+            showError("Failed to initialize player: ${e.message}")
         }
     }
 
-    private fun setupCustomControls() {
-        // Find controller views
-        exoBack = binding.playerView.findViewById(R.id.exo_back)
-        exoChannelName = binding.playerView.findViewById(R.id.exo_channel_name)
-        exoPip = binding.playerView.findViewById(R.id.exo_pip)
-        exoSettings = binding.playerView.findViewById(R.id.exo_settings)
-        exoMute = binding.playerView.findViewById(R.id.exo_mute)
-        exoLock = binding.playerView.findViewById(R.id.exo_lock)
-        exoAspectRatio = binding.playerView.findViewById(R.id.exo_aspect_ratio)
-        exoPlayPause = binding.playerView.findViewById(R.id.exo_play_pause)
-        exoFullscreen = binding.playerView.findViewById(R.id.exo_fullscreen)
-        exoRewind = binding.playerView.findViewById(R.id.exo_rewind)
-        exoForward = binding.playerView.findViewById(R.id.exo_forward)
+    private fun showError(message: String) {
+        binding.errorView.visibility = android.view.View.VISIBLE
+        binding.errorText.text = message
+    }
 
+    // ------------------------
+    // Controls and related channels
+    // ------------------------
+    private fun setupCustomControls() {
+        // find controller views inside PlayerView if present in controller layout
+        exoPip = binding.playerView.findViewById(R.id.exo_pip)
+        exoFullscreen = binding.playerView.findViewById(R.id.exo_fullscreen)
+
+        // channel name if present in controller
+        val exoChannelName = binding.playerView.findViewById<View?>(resources.getIdentifier("exo_channel_name", "id", packageName))
         (exoChannelName as? android.widget.TextView)?.text = channel.name
 
-        // Aspect ratio hidden in portrait, visible in landscape
-        exoAspectRatio?.visibility = View.GONE
-
-        exoBack?.setOnClickListener { finish() }
-
-        // PiP button
-        exoPip?.apply {
+        // PiP button behaviour (still available)
+        exoPip?.let { pip ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
             ) {
-                visibility = View.VISIBLE
-                setOnClickListener { enterPipMode() }
+                pip.visibility = View.VISIBLE
+                pip.setOnClickListener { enterPipMode() }
             } else {
-                visibility = View.GONE
+                pip.visibility = View.GONE
             }
         }
 
-        exoSettings?.setOnClickListener { /* TODO: settings */ }
-        exoMute?.setOnClickListener { toggleMute() }
-
-        // Lock functionality
-        exoLock?.setOnClickListener {
-            isLocked = true
-            binding.playerView.useController = false
-            binding.lockOverlay.visibility = View.VISIBLE
-            binding.unlockButton.visibility = View.VISIBLE
-            exoLock?.setImageResource(R.drawable.ic_lock_closed)
-        }
-
-        binding.lockOverlay.setOnClickListener {
-            binding.unlockButton.visibility = if (binding.unlockButton.visibility == View.VISIBLE) {
-                View.GONE
-            } else {
-                View.VISIBLE
-            }
-        }
-
-        binding.unlockButton.setOnClickListener {
-            isLocked = false
-            binding.playerView.useController = true
-            binding.lockOverlay.visibility = View.GONE
-            binding.unlockButton.visibility = View.GONE
-            exoLock?.setImageResource(R.drawable.ic_lock_open)
-        }
-
-        exoAspectRatio?.setOnClickListener {
-            currentAspectRatioIndex = (currentAspectRatioIndex + 1) % aspectRatios.size
-            binding.playerView.resizeMode = aspectRatios[currentAspectRatioIndex]
-        }
-
-        exoPlayPause?.setOnClickListener {
-            player?.let { if (it.isPlaying) it.pause() else it.play() }
-        }
-
-        exoRewind?.setOnClickListener {
-            player?.let {
-                val newPos = (it.currentPosition - 15_000L).coerceAtLeast(0L)
-                it.seekTo(newPos)
-            }
-        }
-
-        exoForward?.setOnClickListener {
-            player?.let {
-                val dur = if (it.duration > 0) it.duration else Long.MAX_VALUE
-                val newPos = (it.currentPosition + 15_000L).coerceAtMost(dur)
-                it.seekTo(newPos)
-            }
-        }
-
-        // Fullscreen button - toggles landscape/portrait mode
-        exoFullscreen?.setOnClickListener { toggleFullscreen() }
-
-        binding.retryButton.setOnClickListener {
-            binding.errorView.visibility = View.GONE
-            setupPlayer()
+        exoFullscreen?.setOnClickListener {
+            toggleFloatingMode()
         }
     }
 
     private fun setupRelatedChannels() {
         relatedChannelsAdapter = RelatedChannelAdapter { relatedChannel ->
-            if (!isLocked) switchChannel(relatedChannel)
+            // When a related channel is clicked, switch to it
+            switchChannel(relatedChannel)
         }
-        
-        // Use GridLayoutManager with 3 columns for portrait
+
         binding.relatedChannelsRecycler.apply {
-            layoutManager = GridLayoutManager(this@ChannelPlayerActivity, 3)
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+                this@ChannelPlayerActivity,
+                androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL,
+                false
+            )
             adapter = relatedChannelsAdapter
             setHasFixedSize(true)
         }
-        
-        Timber.d("Related channels RecyclerView setup complete")
     }
 
     private fun loadRelatedChannels() {
-        Timber.d("Loading related channels for category: ${channel.categoryId}, current channel: ${channel.id}")
-        
-        // Load all channels from same category (including M3U parsed channels)
-        viewModel.loadAllChannelsFromCategory(channel.categoryId, channel.categoryName, channel.id)
-        
+        viewModel.loadRelatedChannels(channel.categoryId, channel.id)
+
         viewModel.relatedChannels.observe(this) { channels ->
-            Timber.d("✅ Received ${channels.size} related channels from ViewModel")
-            
-            if (channels.isEmpty()) {
-                Timber.w("⚠️ No related channels found!")
-                binding.relatedChannelsSection.visibility = View.GONE
-            } else {
-                Timber.d("📺 Related channels: ${channels.take(5).map { it.name }}")
-                relatedChannelsAdapter.submitList(channels)
-                binding.relatedChannelsSection.visibility = View.VISIBLE
-            }
+            Timber.d("Loaded ${channels.size} related channels")
+            relatedChannelsAdapter.submitList(channels)
+            binding.relatedChannelsContainer.visibility =
+                if (channels.isEmpty()) View.GONE else View.VISIBLE
         }
     }
 
     private fun switchChannel(newChannel: Channel) {
+        Timber.d("Switching to channel: ${newChannel.name}")
+
+        player?.release()
+        player = null
+
         channel = newChannel
-        (exoChannelName as? android.widget.TextView)?.text = channel.name
 
-        player?.stop()
-        val mediaItem = MediaItem.fromUri(channel.streamUrl)
-        player?.setMediaItem(mediaItem)
-        player?.prepare()
-        player?.playWhenReady = true
+        binding.playerView.findViewById<android.widget.TextView?>(
+            resources.getIdentifier("exo_channel_name", "id", packageName)
+        )?.text = channel.name
 
-        binding.errorView.visibility = View.GONE
-        binding.progressBar.visibility = View.VISIBLE
-        
-        Timber.d("Switched to channel: ${channel.name}")
+        if (validateChannel()) {
+            setupPlayer()
+        }
     }
 
-    private fun toggleFullscreen() {
-        if (isFullscreen) {
-            exitFullscreen()
+    private fun validateChannel(): Boolean {
+        return when {
+            channel.name.isEmpty() -> {
+                Timber.e("Channel name is empty")
+                showError("Invalid channel: missing name")
+                false
+            }
+            channel.streamUrl.isEmpty() -> {
+                Timber.e("Stream URL is empty for channel: ${channel.name}")
+                showError("Invalid stream URL for ${channel.name}")
+                false
+            }
+            !isValidUrl(channel.streamUrl) -> {
+                Timber.e("Invalid stream URL format: ${channel.streamUrl}")
+                showError("Invalid stream URL format")
+                false
+            }
+            else -> true
+        }
+    }
+
+    private fun isValidUrl(url: String): Boolean {
+        return url.startsWith("http://", ignoreCase = true) ||
+                url.startsWith("https://", ignoreCase = true)
+    }
+
+    // ------------------------
+    // Floating (mini) player logic
+    // ------------------------
+    private lateinit var floatingBinding: FloatingPlayerViewBinding
+    private fun setupFloatingContainer() {
+        // inflate but keep hidden initially
+        val floatingView = layoutInflater.inflate(R.layout.floating_player_view, binding.activityRoot, false)
+        floatingBinding = FloatingPlayerViewBinding.bind(floatingView)
+
+        // add to root but invisible by default
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.END
+            marginEnd = 24.dpToPx()
+            topMargin = 24.dpToPx()
+        }
+
+        binding.activityRoot.addView(floatingView, params)
+        floatingView.visibility = View.GONE
+
+        // expand button - put player back to normal
+        floatingBinding.btnExpand.setOnClickListener {
+            restoreFromFloating()
+        }
+
+        // close button - stop & finish
+        floatingBinding.btnClose.setOnClickListener {
+            // stop playback and finish
+            player?.pause()
+            player?.release()
+            player = null
+            finish()
+        }
+
+        // make draggable
+        makeViewDraggable(floatingView)
+    }
+
+    private fun toggleFloatingMode() {
+        if (isFloating) {
+            restoreFromFloating()
         } else {
-            enterFullscreen()
+            enterFloatingMode()
         }
     }
 
-    private fun enterFullscreen() {
-        isFullscreen = true
-        
-        // Switch to landscape mode
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        
-        // Hide related channels section
-        binding.relatedChannelsSection.visibility = View.GONE
-        
-        // Make player fill entire screen
-        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-        params.dimensionRatio = null // Remove aspect ratio constraint
-        params.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-        binding.playerContainer.layoutParams = params
-        
-        // Show aspect ratio button in fullscreen
-        exoAspectRatio?.visibility = View.VISIBLE
-        
-        // Update fullscreen icon
-        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
-        
-        Timber.d("Entered fullscreen mode")
+    private fun enterFloatingMode() {
+        // Only allowed if playerView is present
+        val playerView = binding.playerView as PlayerView
+        val floatingView = binding.activityRoot.findViewById<View>(R.id.floating_root) ?: return
+
+        // Hide full-screen UI pieces
+        binding.relatedChannelsContainer.visibility = View.GONE
+        binding.errorView.visibility = View.GONE
+        binding.loadingProgress.visibility = View.GONE
+
+        // Re-parent the playerView into floating container
+        reparentPlayerView(playerView, floatingView.findViewById(R.id.floating_player_container))
+
+        // Show floating UI
+        floatingView.visibility = View.VISIBLE
+
+        // Hide controller on the big container to reduce duplication
+        playerView.useController = true // keeps controls inside player view if desired
+        isFloating = true
     }
 
-    private fun exitFullscreen() {
-        isFullscreen = false
-        
-        // Switch back to portrait mode
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        
-        // Show related channels section
-        binding.relatedChannelsSection.visibility = View.VISIBLE
-        
-        // Restore player to 16:9 at top
-        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
-        params.dimensionRatio = "16:9" // Restore aspect ratio
-        params.bottomToTop = R.id.related_channels_section
-        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
-        binding.playerContainer.layoutParams = params
-        
-        // Hide aspect ratio button in portrait
-        exoAspectRatio?.visibility = View.GONE
-        
-        // Reset resize mode to FIT
-        binding.playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-        
-        // Update fullscreen icon
-        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen)
-        
-        Timber.d("Exited fullscreen mode")
+    private fun restoreFromFloating() {
+        val playerView = binding.playerView as PlayerView
+        val floatingView = binding.activityRoot.findViewById<View>(R.id.floating_root) ?: return
+        val fullContainer = binding.playerContainer
+
+        // Re-parent back to full container
+        reparentPlayerView(playerView, fullContainer)
+
+        // Hide floating view
+        floatingView.visibility = View.GONE
+
+        // restore related channels visibility
+        binding.relatedChannelsContainer.visibility = View.VISIBLE
+        isFloating = false
     }
 
-    private fun toggleMute() {
-        player?.let {
-            isMuted = !isMuted
-            it.volume = if (isMuted) 0f else 1f
-            exoMute?.setImageResource(if (isMuted) R.drawable.ic_volume_off else R.drawable.ic_volume_up)
+    /**
+     * Removes [playerView] from its current parent and adds it to [newParent].
+     * Works for PlayerView reparenting to mini/full containers.
+     */
+    private fun reparentPlayerView(playerView: PlayerView, newParent: ViewGroup) {
+        // Remove from old parent
+        (playerView.parent as? ViewGroup)?.removeView(playerView)
+
+        // Ensure layout params for the new parent
+        val lp = if (newParent is FrameLayout) {
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        } else {
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         }
+
+        // Add to new parent
+        newParent.addView(playerView, 0, lp)
     }
 
-    private fun updatePlayPauseIcon() {
-        player?.let { 
-            exoPlayPause?.setImageResource(
-                if (it.isPlaying) R.drawable.ic_pause 
-                else R.drawable.ic_play
-            ) 
-        }
-    }
+    private fun makeViewDraggable(view: View) {
+        var lastX = 0f
+        var lastY = 0f
+        var downX = 0f
+        var downY = 0f
+        var isDragging = false
 
-    private fun enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                // Hide controls before entering PiP
-                binding.playerView.useController = false
-                binding.playerView.hideController()
-                
-                binding.playerView.postDelayed({
-                    try {
-                        val videoWidth = player?.videoSize?.width ?: 16
-                        val videoHeight = player?.videoSize?.height ?: 9
-                        
-                        val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
-                            Rational(videoWidth, videoHeight)
-                        } else {
-                            Rational(16, 9)
-                        }
+        view.setOnTouchListener { v, event ->
+            val parent = v.parent as? ViewGroup ?: return@setOnTouchListener false
 
-                        val sourceRectHint = android.graphics.Rect()
-                        binding.playerView.getGlobalVisibleRect(sourceRectHint)
-
-                        val params = PictureInPictureParams.Builder()
-                            .setAspectRatio(aspectRatio)
-                            .setSourceRectHint(sourceRectHint)
-                            .build()
-                            
-                        enterPictureInPictureMode(params)
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to enter PiP mode")
-                        Toast.makeText(this, "PiP not available", Toast.LENGTH_SHORT).show()
-                        binding.playerView.useController = true
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    lastX = v.x
+                    lastY = v.y
+                    isDragging = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (!isDragging && (kotlin.math.abs(dx) > touchSlop || kotlin.math.abs(dy) > touchSlop)) {
+                        isDragging = true
                     }
-                }, 100)
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to enter PiP mode")
-                Toast.makeText(this, "PiP not available", Toast.LENGTH_SHORT).show()
+                    if (isDragging) {
+                        val newX = lastX + dx
+                        val newY = lastY + dy
+                        // ensure within parent bounds
+                        val maxX = parent.width - v.width
+                        val maxY = parent.height - v.height
+                        v.x = min(max(newX, 0f), maxX.toFloat())
+                        v.y = min(max(newY, 0f), maxY.toFloat())
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    // if it was just a tap (not drag), consume so buttons inside clickable still get events
+                    !isDragging
+                }
+                else -> false
             }
         }
     }
 
-    override fun onPictureInPictureModeChanged(
-        isInPictureInPictureMode: Boolean, 
-        newConfig: android.content.res.Configuration
-    ) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        
-        if (isInPictureInPictureMode) {
-            // Entered PiP - hide everything except player
-            binding.playerView.useController = false
-            binding.relatedChannelsSection.visibility = View.GONE
-            binding.lockOverlay.visibility = View.GONE
+    // ------------------------
+    // PiP support
+    // ------------------------
+    private fun enterPipMode() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+        ) {
+            // hide UI except PlayerView so PiP shows only video
+            binding.relatedChannelsContainer.visibility = View.GONE
             binding.errorView.visibility = View.GONE
-            binding.progressBar.visibility = View.GONE
+            binding.loadingProgress.visibility = View.GONE
+
+            val aspectRatio = Rational(16, 9)
+            val params = android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(aspectRatio)
+                .build()
+
+            enterPictureInPictureMode(params)
         } else {
-            // Exited PiP - restore UI
-            binding.relatedChannelsSection.visibility = View.VISIBLE
-            binding.playerView.useController = !isLocked
+            Snackbar.make(binding.activityRoot, "Picture-in-Picture not supported on this device", Snackbar.LENGTH_SHORT).show()
         }
     }
 
-    private fun showError(message: String) {
-        binding.errorView.visibility = View.VISIBLE
-        binding.errorText.text = message
-        binding.progressBar.visibility = View.GONE
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration?) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (isInPictureInPictureMode) {
+            // hide all UI
+            binding.activityRoot.children.forEach { it.visibility = if (it.id == binding.playerView.id) View.VISIBLE else View.GONE }
+        } else {
+            // restore UI
+            binding.activityRoot.children.forEach { it.visibility = View.VISIBLE }
+            // ensure playerView reattached to full container when returning from PiP
+            if (isFloating) {
+                // no-op, still in floating
+            } else {
+                restoreFromFloating()
+            }
+        }
     }
 
+    // ------------------------
+    // Lifecycle
+    // ------------------------
+    override fun onPause() {
+        super.onPause()
+        player?.pause()
+        Timber.d("Player paused")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // don't release here if you want playback to continue when returning quickly;
+        // but to be safe we release onDestroy
+        Timber.d("Activity stopped")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        player?.release()
+        player = null
+        Timber.d("Player destroyed")
+    }
+
+    override fun onBackPressed() {
+        if (isFloating) {
+            // if floating, restore first
+            restoreFromFloating()
+        } else {
+            super.onBackPressed()
+        }
+    }
+
+    // ------------------------
+    // Utilities
+    // ------------------------
     private fun hideSystemUI() {
         window.decorView.systemUiVisibility = (
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
@@ -464,22 +509,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
             )
     }
 
-    override fun onPause() {
-        super.onPause()
-        player?.pause()
-    }
-
-    override fun onStop() {
-        super.onStop()
-        if (!isInPictureInPictureMode) {
-            player?.release()
-            player = null
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        player?.release()
-        player = null
+    private fun Int.dpToPx(): Int {
+        val scale = resources.displayMetrics.density
+        return (this * scale + 0.5f).toInt()
     }
 }
