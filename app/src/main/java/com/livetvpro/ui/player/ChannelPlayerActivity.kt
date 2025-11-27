@@ -21,7 +21,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.ui.PlayerView
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
@@ -199,12 +199,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
             switchChannel(relatedChannel)
         }
 
+        // Use a horizontal LinearLayoutManager for related channels
         binding.relatedChannelsRecycler.apply {
-            layoutManager = GridLayoutManager(
-                this@ChannelPlayerActivity,
-                GridLayoutManager.HORIZONTAL,
-                false
-            )
+            layoutManager = LinearLayoutManager(this@ChannelPlayerActivity, LinearLayoutManager.HORIZONTAL, false)
             adapter = relatedChannelsAdapter
             setHasFixedSize(true)
         }
