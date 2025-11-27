@@ -249,8 +249,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
-        // Fullscreen is DISABLED in this version - player stays at top
-        exoFullscreen?.visibility = View.GONE
+        // Fullscreen button - toggles landscape/portrait mode
+        exoFullscreen?.setOnClickListener { toggleFullscreen() }
 
         binding.retryButton.setOnClickListener {
             binding.errorView.visibility = View.GONE
@@ -300,7 +300,66 @@ class ChannelPlayerActivity : AppCompatActivity() {
         Timber.d("Switched to channel: ${channel.name}")
     }
 
-    private fun toggleMute() {
+    private fun toggleFullscreen() {
+        if (isFullscreen) {
+            exitFullscreen()
+        } else {
+            enterFullscreen()
+        }
+    }
+
+    private fun enterFullscreen() {
+        isFullscreen = true
+        
+        // Switch to landscape mode
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        
+        // Hide related channels section
+        binding.relatedChannelsSection.visibility = View.GONE
+        
+        // Make player fill entire screen
+        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        params.dimensionRatio = null // Remove aspect ratio constraint
+        params.bottomToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+        binding.playerContainer.layoutParams = params
+        
+        // Show aspect ratio button in fullscreen
+        exoAspectRatio?.visibility = View.VISIBLE
+        
+        // Update fullscreen icon
+        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
+        
+        Timber.d("Entered fullscreen mode")
+    }
+
+    private fun exitFullscreen() {
+        isFullscreen = false
+        
+        // Switch back to portrait mode
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        
+        // Show related channels section
+        binding.relatedChannelsSection.visibility = View.VISIBLE
+        
+        // Restore player to 16:9 at top
+        val params = binding.playerContainer.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+        params.dimensionRatio = "16:9" // Restore aspect ratio
+        params.bottomToTop = R.id.related_channels_section
+        params.bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+        binding.playerContainer.layoutParams = params
+        
+        // Hide aspect ratio button in portrait
+        exoAspectRatio?.visibility = View.GONE
+        
+        // Reset resize mode to FIT
+        binding.playerView.resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+        
+        // Update fullscreen icon
+        exoFullscreen?.setImageResource(R.drawable.ic_fullscreen)
+        
+        Timber.d("Exited fullscreen mode")
+    }
         player?.let {
             isMuted = !isMuted
             it.volume = if (isMuted) 0f else 1f
