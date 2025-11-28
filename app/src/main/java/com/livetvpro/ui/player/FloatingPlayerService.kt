@@ -120,31 +120,24 @@ class FloatingPlayerService : Service() {
             // Initialize ExoPlayer
             player = ExoPlayer.Builder(this).build()
             
-            // Find PlayerView inside the floating container
-            val playerView = binding?.floatingPlayerContainer?.findViewById<PlayerView>(R.id.floating_player_view)
+            // Get PlayerView from binding (it's now in the layout)
+            val playerView = binding?.floatingPlayerView
             
-            // If PlayerView doesn't exist, create it programmatically
-            val actualPlayerView = playerView ?: PlayerView(this).apply {
-                id = R.id.floating_player_view
-                layoutParams = android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT
-                )
-                useController = false
-                binding?.floatingPlayerContainer?.addView(this)
+            if (playerView != null) {
+                playerView.player = player
+                
+                // Prepare media
+                val mediaItem = MediaItem.fromUri(streamUrl)
+                player?.apply {
+                    setMediaItem(mediaItem)
+                    prepare()
+                    playWhenReady = true
+                }
+                
+                Timber.d("Floating player initialized for: $channelName")
+            } else {
+                Timber.e("PlayerView not found in layout")
             }
-            
-            actualPlayerView.player = player
-            
-            // Prepare media
-            val mediaItem = MediaItem.fromUri(streamUrl)
-            player?.apply {
-                setMediaItem(mediaItem)
-                prepare()
-                playWhenReady = true
-            }
-            
-            Timber.d("Floating player initialized for: $channelName")
         } catch (e: Exception) {
             Timber.e(e, "Error setting up floating player")
         }
