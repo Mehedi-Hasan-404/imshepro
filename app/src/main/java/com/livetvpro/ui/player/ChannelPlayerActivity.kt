@@ -5,7 +5,6 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -165,11 +164,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
     // --------------------
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            Toast.makeText(this, getString(R.string.pip_not_supported), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "PiP is not supported on this device", Toast.LENGTH_SHORT).show()
             return
         }
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-            Toast.makeText(this, getString(R.string.pip_not_supported), Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "PiP is not supported on this device", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -192,8 +191,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
         super.onUserLeaveHint()
     }
 
-    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration?) {
-        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    // Use the single-argument override for broader compatibility with compile SDKs
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
         isInPipMode = isInPictureInPictureMode
 
         // hide controls UI when in PiP
