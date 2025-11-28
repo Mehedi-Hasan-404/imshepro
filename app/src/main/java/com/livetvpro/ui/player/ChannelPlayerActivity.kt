@@ -1,3 +1,8 @@
+// ===================================
+// FILE: app/src/main/java/com/livetvpro/ui/player/ChannelPlayerActivity.kt
+// ACTION: REPLACE - Fix floating player implementation
+// ===================================
+
 package com.livetvpro.ui.player
 
 import android.app.PictureInPictureParams
@@ -241,9 +246,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         exoAspectRatio?.visibility = View.GONE
 
-        exoBack?.setOnClickListener { if (isFullscreen) exitFullscreen() else finish() }
+        exoBack?.setOnClickListener { 
+            if (isFullscreen) exitFullscreen() else finish() 
+        }
 
-        // PiP button - Start floating player instead of direct PiP
+        // ✅ FIXED: PiP button - Check permission and start floating player
         exoPip?.apply {
             visibility = View.VISIBLE
             setOnClickListener { 
@@ -307,6 +314,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ✅ FIXED: Improved floating player startup
     private fun startFloatingPlayer() {
         // Check for overlay permission on Android M+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -316,22 +324,25 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
         
-        // Pause main player
-        player?.pause()
+        Timber.d("Starting floating player for: ${channel.name}")
         
-        // Start floating player service
+        // Mark that we're starting floating player
+        isFloatingPlayerActive = true
+        
+        // Start floating player service FIRST
         FloatingPlayerService.start(
             context = this,
             streamUrl = channel.streamUrl,
             channelName = channel.name
         )
         
-        isFloatingPlayerActive = true
-        
-        Toast.makeText(this, "Floating player started", Toast.LENGTH_SHORT).show()
-        
-        // Finish this activity or minimize it
-        moveTaskToBack(true)
+        // Give the service a moment to initialize before minimizing
+        binding.root.postDelayed({
+            Toast.makeText(this, "Floating player started", Toast.LENGTH_SHORT).show()
+            
+            // Move to background instead of finishing
+            moveTaskToBack(true)
+        }, 100) // Small delay to ensure service starts
     }
 
     private fun showOverlayPermissionDialog() {
@@ -339,7 +350,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             .setTitle("Permission Required")
             .setMessage("This app needs overlay permission to show floating player. Grant permission in settings?")
             .setPositiveButton("Settings") { _, _ ->
-                // Open settings
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     val intent = Intent(
                         Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -444,7 +454,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun updatePlayPauseIcon() {
-        player?.let { exoPlayPause?.setImageResource(if (it.isPlaying) R.drawable.ic_pause else R.drawable.ic_play) }
+        player?.let { 
+            exoPlayPause?.setImageResource(
+                if (it.isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            ) 
+        }
     }
 
     private fun showError(message: String) {
@@ -466,22 +480,48 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Don't pause if floating player is starting
         if (!isFloatingPlayerActive) {
             player?.pause()
         }
     }
 
+    // ✅ FIXED: Don't release player when going to background with floating player
     override fun onStop() {
         super.onStop()
+        // Only release player if NOT starting floating player
         if (!isFloatingPlayerActive) {
             player?.release()
             player = null
         }
     }
 
+    // ✅ FIXED: Handle returning from floating player
+    override fun onResume() {
+        super.onResume()
+        
+        // If we were in floating player mode and came back
+        if (isFloatingPlayerActive) {
+            Timber.d("Returning from floating player mode")
+            
+            // Stop floating player service
+            FloatingPlayerService.stop(this)
+            
+            // Reset flag
+            isFloatingPlayerActive = false
+            
+            // Reinitialize player if needed
+            if (player == null) {
+                setupPlayer()
+            } else {
+                player?.playWhenReady = true
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        // Stop floating player service if active
+        // Always stop floating player service when activity is destroyed
         if (isFloatingPlayerActive) {
             FloatingPlayerService.stop(this)
         }
