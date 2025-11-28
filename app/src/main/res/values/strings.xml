@@ -12,6 +12,10 @@
     <string name="nav_favorites">Favorites</string>
     <string name="nav_settings">Settings</string>
 
+    <!-- Drawer accessibility (added to fix compile error) -->
+    <string name="navigation_drawer_open">Open navigation drawer</string>
+    <string name="navigation_drawer_close">Close navigation drawer</string>
+
     <!-- General -->
     <string name="ok">OK</string>
     <string name="cancel">Cancel</string>
