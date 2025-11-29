@@ -107,7 +107,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun setupAspectRatio() {
-        // Calculates 16:9 height based on screen width
+        // Calculates 16:9 height based on screen width for the player container
         val screenWidth = resources.displayMetrics.widthPixels
         val expected16by9Height = (screenWidth * 9f / 16f).toInt()
         
@@ -116,10 +116,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.playerContainer.layoutParams = containerParams
     }
 
-    // FIX: Immediate release on finishing the activity
     override fun onPause() {
         super.onPause()
-        // If activity is finishing (closing PiP 'X'), stop the player immediately
+        // Stop the player immediately if the activity is finishing (e.g., closing PiP window via 'X')
         if (isFinishing && player != null) { 
             releasePlayer()
         }
@@ -127,7 +126,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     
     override fun onStop() {
         super.onStop()
-        // FIX: Check isFinishing to stop audio when user closes PiP window (or navigates away)
+        // Stop audio when user closes PiP window or navigates away
         if (isFinishing || !isInPipMode) {
             releasePlayer()
         }
@@ -144,7 +143,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun releasePlayer() {
         player?.let {
             try {
-                // CRITICAL FIX: Explicitly stop and clear resources to kill background audio
+                // CRITICAL FIX: Explicitly stop and release resources to kill background audio
                 it.stop() 
                 it.clearVideoSurface() 
                 it.release()
@@ -191,7 +190,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
                             if (videoSize.width > 0 && videoSize.height > 0) {
-                                updatePipParams(videoSize.width, videoSize.height)
+                                // If already in PiP, update the params immediately
+                                if (isInPipMode) {
+                                    updatePipParams(videoSize.width, videoSize.height)
+                                }
                             }
                         }
                     })
@@ -341,47 +343,55 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // 🖼️ PIP LOGIC (Fixed Ratios and Fill Mode)
+    // 🖼️ PIP LOGIC (Robust Fix for Stretching)
     // ==========================================
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
 
-        // 1. CRITICAL: Hide entire related section container BEFORE entering PiP
+        // 1. CRITICAL: Hide non-video content
         binding.relatedChannelsSection.visibility = View.GONE
 
-        // 2. Hide controls
+        // 2. Hide controls/overlays
         binding.playerView.useController = false
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
         
-        val format = player?.videoFormat
-        val width = format?.width ?: 16
-        val height = format?.height ?: 9
+        // 3. Get the best available dimensions, falling back to 16:9 for safety.
+        val videoSize = player?.videoSize
+        val width = videoSize?.width ?: 16 
+        val height = videoSize?.height ?: 9
         
+        // 4. Update and enter PiP
         updatePipParams(width, height, enter = true)
     }
 
     private fun updatePipParams(width: Int, height: Int, enter: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Use the actual video dimensions to constrain the PiP window's ratio
-            val ratio = if (width > 0 && height > 0) Rational(width, height) else Rational(16, 9)
+            // Ensure rational uses sensible defaults if dimensions are 0
+            val effectiveWidth = if (width > 0) width else 16
+            val effectiveHeight = if (height > 0) height else 9
+            
+            val ratio = Rational(effectiveWidth, effectiveHeight)
             
             val builder = PictureInPictureParams.Builder()
             builder.setAspectRatio(ratio)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 builder.setAutoEnterEnabled(false)
-                // Essential for smooth, ratio-locked resizing
                 builder.setSeamlessResizeEnabled(true)
             }
             
+            val params = builder.build()
+
             try {
                 if (enter) {
-                    val success = enterPictureInPictureMode(builder.build())
+                    // Use the custom params when entering PiP
+                    val success = enterPictureInPictureMode(params)
                     if (success) isInPipMode = true
                 } else if (isInPipMode) {
-                    setPictureInPictureParams(builder.build())
+                    // Update the params if the video size changes while already in PiP
+                    setPictureInPictureParams(params)
                 }
             } catch (e: Exception) {
                 Timber.e("PiP Error: ${e.message}")
@@ -401,21 +411,18 @@ class ChannelPlayerActivity : AppCompatActivity() {
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
             
-            // CRITICAL FIX: Set to FILL mode. The PiP window is constrained by the system (via updatePipParams),
-            // so FILL ensures the video image covers the entire constrained window, removing black bars without stretching.
+            // CRITICAL FIX: Set to FILL mode. This is the professional player method: 
+            // the system constrains the window's shape, and the player fills it.
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL 
             
         } else {
             // Exited PiP
             userRequestedPip = false
             
-            // Restore Related Section visibility
+            // Restore UI state
             binding.relatedChannelsSection.visibility = View.VISIBLE
-            
-            // Restore PlayerView to FIT mode for standard screen
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT 
             
-            // Restore UI state
             if (isLocked) {
                 binding.playerView.useController = false
                 binding.lockOverlay.visibility = View.VISIBLE
