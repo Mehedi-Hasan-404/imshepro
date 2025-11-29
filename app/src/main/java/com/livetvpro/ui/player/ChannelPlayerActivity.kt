@@ -202,13 +202,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                 }
                             }
                         }
-                        
-                        override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
-                            // Update PiP aspect ratio when video size changes
-                            if (isInPipMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                updatePipParams()
-                            }
-                        }
                     })
                 }
         } catch (e: Exception) {
@@ -426,17 +419,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         
         try {
-            // Get video aspect ratio from player
-            val videoFormat = player?.videoFormat
-            val videoWidth = videoFormat?.width ?: 16
-            val videoHeight = videoFormat?.height ?: 9
-            
-            // Use actual video aspect ratio if available, otherwise default to 16:9
-            val aspectRatio = if (videoWidth > 0 && videoHeight > 0) {
-                Rational(videoWidth, videoHeight)
-            } else {
-                Rational(16, 9)
-            }
+            // FIXED: Always use 16:9 aspect ratio - don't change during resize
+            val aspectRatio = Rational(16, 9)
             
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(aspectRatio)
@@ -450,7 +434,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 enterPictureInPictureMode(params)
             }
             
-            Timber.d("Updated PiP params with aspect ratio: ${aspectRatio.numerator}:${aspectRatio.denominator}")
+            Timber.d("Updated PiP params with fixed 16:9 aspect ratio")
         } catch (e: Exception) {
             Timber.e(e, "Error updating PiP params")
         }
@@ -480,15 +464,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
             
             Timber.d("Entered PiP mode")
         } else {
-            // Exiting PiP mode
-            findAndShowRelatedRecycler()
-            binding.playerView.useController = !isLocked
-            binding.playerView.showController()
+            // FIXED: Exiting PiP mode - STOP and RELEASE player
+            Timber.d("Exiting PiP mode - stopping playback")
             
-            // Restore resize mode
-            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // Pause and release the player when PiP closes
+            releasePlayer()
             
-            Timber.d("Exited PiP mode")
+            // Finish the activity to close it completely
+            finish()
         }
     }
 
