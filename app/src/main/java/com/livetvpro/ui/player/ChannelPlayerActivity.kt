@@ -23,8 +23,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.PlayerView
+import androidx.media3.ui.TimeBar
 import androidx.recyclerview.widget.RecyclerView
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
@@ -55,7 +55,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private var txtPosition: TextView? = null
     private var txtDuration: TextView? = null
-    private var timeBar: DefaultTimeBar? = null
+    private var timeBar: TimeBar? = null
 
     private var isInPipMode = false
     private var isLocked = false
@@ -107,7 +107,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // anchor player container to top and enforce 16:9 height to avoid vertical-centering issues
+        // anchor player container to top and enforce a 16:9 height to avoid vertical-centering issues
         val screenWidth = resources.displayMetrics.widthPixels
         val expected16by9Height = (screenWidth * 9f / 16f).toInt()
         val containerParams = binding.playerContainer.layoutParams
@@ -142,7 +142,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         mainHandler.post(positionUpdater)
 
-        // runtime-safe show of related recycler (if present)
+        // runtime-safe show of related recycler (won't compile-time reference binding.relatedRecyclerView)
         findAndShowRelatedRecycler()
     }
 
@@ -215,7 +215,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // --------------------
-    // Bind exactly the ids in your controller file
+    // Bind the exact ids in your controller file (safe runtime lookup)
     // --------------------
     private fun bindControllerViewsExact() {
         btnBack = binding.playerView.findViewById(R.id.exo_back)
@@ -230,7 +230,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         txtPosition = binding.playerView.findViewById(R.id.exo_position)
         txtDuration = binding.playerView.findViewById(R.id.exo_duration)
-        timeBar = binding.playerView.findViewById(R.id.exo_progress)
+
+        // runtime-safe lookup for timebar id (handles @id/exo_progress case)
+        val tbId = resources.getIdentifier("exo_progress", "id", packageName)
+        timeBar = if (tbId != 0) try { binding.playerView.findViewById<TimeBar?>(tbId) } catch (_: Throwable) { null } else null
 
         // set icons using the exact drawable names present in your repo
         btnBack?.setImageResource(R.drawable.ic_arrow_back)
@@ -251,24 +254,28 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // --------------------
-    // Control listeners (wired to exact ids only)
+    // Wire actions for those exact ids
     // --------------------
     private fun setupControlListenersExact() {
+        // Back
         btnBack?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             finish()
         }
 
+        // PiP
         btnPip?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             enterPipMode()
         }
 
+        // Settings (placeholder)
         btnSettings?.setOnClickListener {
             if (isLocked) return@setOnClickListener
-            Timber.d("settings clicked")
+            Timber.d("Settings clicked")
         }
 
+        // Mute toggle
         btnMute?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             player?.let {
@@ -284,6 +291,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
+        // Lock
         btnLock?.setOnClickListener {
             isLocked = !isLocked
             if (isLocked) {
@@ -297,6 +305,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
+        // Rewind
         btnRewind?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             player?.let {
@@ -305,6 +314,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
+        // Play/Pause single button
         btnPlayPause?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             player?.let {
@@ -318,15 +328,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
+        // Forward
         btnForward?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             player?.let {
                 val pos = it.currentPosition
-                val dur = it.duration.takeIf { d -> d > 0 } ?: Long.MAX_VALUE
-                it.seekTo((pos + skipMs).coerceAtMost(dur))
+                val duration = it.duration.takeIf { d -> d > 0 } ?: Long.MAX_VALUE
+                it.seekTo((pos + skipMs).coerceAtMost(duration))
             }
         }
 
+        // Fullscreen toggle (simple orientation switch)
         btnFullscreen?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             val isLandscape = resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT
@@ -341,10 +353,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
 
-        timeBar?.addListener(object : DefaultTimeBar.OnScrubListener {
-            override fun onScrubStart(timeBar: DefaultTimeBar, position: Long) {}
-            override fun onScrubMove(timeBar: DefaultTimeBar, position: Long) {}
-            override fun onScrubStop(timeBar: DefaultTimeBar, position: Long, canceled: Boolean) {
+        // TimeBar scrubbing (use correct TimeBar.OnScrubListener)
+        timeBar?.addListener(object : TimeBar.OnScrubListener {
+            override fun onScrubStart(timeBar: TimeBar, position: Long) {}
+            override fun onScrubMove(timeBar: TimeBar, position: Long) {}
+            override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
                 player?.seekTo(position)
             }
         })
@@ -366,7 +379,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // --------------------
-    // PiP handling
+    // PiP handling (hides related & controller)
     // --------------------
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -378,14 +391,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
             return
         }
 
-        // hide related & UI before entering PiP
-        findAndHideRelatedRecycler()
+        try { findAndHideRelatedRecycler() } catch (_: Throwable) {}
         binding.playerView.useController = false
 
         val width = binding.playerContainer.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
         val height = binding.playerContainer.height.takeIf { it > 0 } ?: (width * 9 / 16)
-        val aspect = Rational(width, height)
-        val params = PictureInPictureParams.Builder().setAspectRatio(aspect).build()
+        val aspectRatio = Rational(width, height)
+
+        val params = PictureInPictureParams.Builder().setAspectRatio(aspectRatio).build()
         isInPipMode = true
         enterPictureInPictureMode(params)
     }
@@ -410,7 +423,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     // --------------------
     // Helpers to find/hide/show related RecyclerView safely at runtime
-    // (no compile-time binding.relatedRecyclerView usage)
     // --------------------
     private fun findRelatedRecyclerView(): RecyclerView? {
         val names = listOf("related_recycler_view", "relatedRecyclerView", "related_recycler", "related_list")
@@ -437,7 +449,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // --------------------
-    // Utilities
+    // Helpers
     // --------------------
     private fun formatTime(millis: Long): String {
         if (millis <= 0L) return "0:00"
