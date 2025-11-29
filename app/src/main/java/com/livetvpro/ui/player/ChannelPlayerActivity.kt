@@ -233,7 +233,15 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         // runtime-safe lookup for timebar id (handles @id/exo_progress case)
         val tbId = resources.getIdentifier("exo_progress", "id", packageName)
-        timeBar = if (tbId != 0) try { binding.playerView.findViewById<TimeBar?>(tbId) } catch (_: Throwable) { null } else null
+        timeBar = if (tbId != 0) {
+            try { 
+                binding.playerView.findViewById<TimeBar>(tbId)
+            } catch (_: Throwable) { 
+                null 
+            }
+        } else {
+            null
+        }
 
         // set icons using the exact drawable names present in your repo
         btnBack?.setImageResource(R.drawable.ic_arrow_back)
