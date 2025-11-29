@@ -62,7 +62,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private val skipMs = 10_000L
     private var userRequestedPip = false
 
-    // Handlers for hiding UI
+    // Handlers
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hideUnlockButtonRunnable = Runnable {
         binding.unlockButton.visibility = View.GONE
@@ -83,13 +83,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // 1. Force 16:9 layout aspect ratio immediately
-        setupAspectRatio()
-
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        hideSystemUI()
-
-        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        
+        // Initial UI Setup based on current orientation
+        val currentOrientation = resources.configuration.orientation
+        adjustLayoutForOrientation(currentOrientation == Configuration.ORIENTATION_LANDSCAPE)
 
         channel = intent.getParcelableExtra(EXTRA_CHANNEL) ?: run {
             finish()
@@ -102,25 +100,47 @@ class ChannelPlayerActivity : AppCompatActivity() {
         bindControllerViewsExact()
         setupControlListenersExact()
         setupPlayerViewInteractions()
-        setupLockOverlay() // New smart lock logic
-
-        findAndShowRelatedRecycler()
+        setupLockOverlay()
     }
 
-    private fun setupAspectRatio() {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val expected16by9Height = (screenWidth * 9f / 16f).toInt()
-        val containerParams = binding.playerContainer.layoutParams
-        if (containerParams is ConstraintLayout.LayoutParams) {
-            containerParams.height = expected16by9Height
-            containerParams.dimensionRatio = "16:9"
-            containerParams.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
-            containerParams.topMargin = 0
-            binding.playerContainer.layoutParams = containerParams
+    /**
+     * 🔄 Handle rotation events (Portrait <-> Landscape)
+     * This is called automatically because we added configChanges to Manifest
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+        adjustLayoutForOrientation(isLandscape)
+    }
+
+    /**
+     * 📐 Adjusts Layout Constraints:
+     * - Landscape: Fullscreen player, hidden related section
+     * - Portrait: 16:9 player, visible related section
+     */
+    private fun adjustLayoutForOrientation(isLandscape: Boolean) {
+        val params = binding.playerContainer.layoutParams as ConstraintLayout.LayoutParams
+        
+        if (isLandscape) {
+            // LANDSCAPE: Fullscreen
+            hideSystemUI()
+            params.dimensionRatio = null // Remove 16:9 ratio restriction
+            params.height = ConstraintLayout.LayoutParams.MATCH_PARENT
+            params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID // Stretch to bottom
+            
+            binding.relatedChannelsSection.visibility = View.GONE
+            btnFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
         } else {
-            containerParams.height = expected16by9Height
-            binding.playerContainer.layoutParams = containerParams
+            // PORTRAIT: 16:9 Player + Related Content
+            params.dimensionRatio = "16:9"
+            params.height = 0 // MATCH_CONSTRAINT (uses ratio)
+            params.bottomToBottom = ConstraintLayout.LayoutParams.UNSET // Allow space for content below
+            
+            binding.relatedChannelsSection.visibility = View.VISIBLE
+            btnFullscreen?.setImageResource(R.drawable.ic_fullscreen)
         }
+        
+        binding.playerContainer.layoutParams = params
     }
 
     override fun onStop() {
@@ -147,7 +167,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun setupPlayer() {
-        // Release existing if any
         player?.release()
 
         try {
@@ -162,8 +181,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     )
                 ).build().also { exo ->
                     binding.playerView.player = exo
-                    
-                    // Force FIT to prevent cutting off video or stretching
                     binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     
                     val mediaItem = MediaItem.fromUri(channel.streamUrl)
@@ -177,12 +194,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                 updatePlayPauseIcon(exo.playWhenReady)
                             }
                         }
-
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             updatePlayPauseIcon(isPlaying)
                         }
-
-                        // Update PiP params dynamically when video size loads/changes
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
                             updatePipParams(videoSize.width, videoSize.height)
@@ -199,10 +213,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             controllerShowTimeoutMs = 5000
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
         }
-
-        // Prevent clicks passing through to underlying views
-        binding.playerContainer.isClickable = true
-        binding.playerContainer.isFocusable = true
     }
 
     private fun updatePlayPauseIcon(isPlaying: Boolean) {
@@ -214,7 +224,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     private fun bindControllerViewsExact() {
-        // Bind views manually to ensure we catch them from the custom layout
         with(binding.playerView) {
             btnBack = findViewById(R.id.exo_back)
             btnPip = findViewById(R.id.exo_pip)
@@ -227,12 +236,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
             btnFullscreen = findViewById(R.id.exo_fullscreen)
             
             val tbId = resources.getIdentifier("exo_progress", "id", packageName)
-            if (tbId != 0) {
-                timeBar = findViewById(tbId)
-            }
+            if (tbId != 0) timeBar = findViewById(tbId)
         }
 
-        // Initial UI State
         btnBack?.setImageResource(R.drawable.ic_arrow_back)
         btnPip?.setImageResource(R.drawable.ic_pip)
         btnSettings?.setImageResource(R.drawable.ic_settings)
@@ -257,8 +263,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             }
         }
         
-        btnSettings?.setOnClickListener { if (!isLocked) Timber.d("Settings clicked") }
-
         btnMute?.setOnClickListener {
             if (isLocked) return@setOnClickListener
             player?.let {
@@ -289,41 +293,26 @@ class ChannelPlayerActivity : AppCompatActivity() {
             if (!isLocked) player?.seekTo((player?.currentPosition ?: 0) + skipMs)
         }
 
+        // Just toggle orientation, onConfigurationChanged will handle the UI
         btnFullscreen?.setOnClickListener { if (!isLocked) toggleFullscreen() }
     }
 
     private fun setupPlayerViewInteractions() {
         binding.playerView.setOnClickListener(null)
-        // Let PlayerView handle its own touch logic for showing/hiding controls
         binding.playerView.controllerAutoShow = true
     }
 
-    // ==========================================
-    // 🔒 SMART LOCK LOGIC
-    // ==========================================
     private fun setupLockOverlay() {
-        // When the unlock button is clicked, unlock the screen
-        binding.unlockButton.setOnClickListener {
-            toggleLock()
-        }
-
-        // When the transparent overlay is clicked (screen tap while locked)
-        // Toggle the unlock button visibility
+        binding.unlockButton.setOnClickListener { toggleLock() }
         binding.lockOverlay.setOnClickListener {
-            if (binding.unlockButton.visibility == View.VISIBLE) {
-                hideUnlockButton()
-            } else {
-                showUnlockButton()
-            }
+            if (binding.unlockButton.visibility == View.VISIBLE) hideUnlockButton() else showUnlockButton()
         }
-
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
     }
 
     private fun showUnlockButton() {
         binding.unlockButton.visibility = View.VISIBLE
-        // Auto-hide after 3 seconds
         mainHandler.removeCallbacks(hideUnlockButtonRunnable)
         mainHandler.postDelayed(hideUnlockButtonRunnable, 3000)
     }
@@ -335,75 +324,53 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun toggleLock() {
         isLocked = !isLocked
-        
         if (isLocked) {
-            // STATE: LOCKED
-            binding.playerView.useController = false // Hides standard controls
+            binding.playerView.useController = false
             binding.playerView.hideController()
-            
-            // Show overlay to intercept touches
             binding.lockOverlay.visibility = View.VISIBLE
-            
-            // Show unlock button briefly, then hide it
             showUnlockButton()
-            
             btnLock?.setImageResource(R.drawable.ic_lock_closed)
-            
-            // Important: Set this so lockOverlay handles clicks, not the underlying PlayerView
             binding.lockOverlay.isClickable = true
             binding.lockOverlay.isFocusable = true
         } else {
-            // STATE: UNLOCKED
             binding.playerView.useController = true
             binding.playerView.showController()
-            
             binding.lockOverlay.visibility = View.GONE
-            hideUnlockButton() // Ensure timer is cancelled
-            
+            hideUnlockButton()
             btnLock?.setImageResource(R.drawable.ic_lock_open)
         }
     }
 
-    // ==========================================
-    // 🖼️ PIP LOGIC (With Seamless Resize)
-    // ==========================================
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
 
-        try { findAndHideRelatedRecycler() } catch (_: Throwable) {}
-
-        // Hide controls for PiP
+        // Hide UI for PiP
+        binding.relatedChannelsSection.visibility = View.GONE
         binding.playerView.useController = false
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
         
-        // Use current video aspect ratio
         val format = player?.videoFormat
         val width = format?.width ?: 16
         val height = format?.height ?: 9
-        
         updatePipParams(width, height, enter = true)
     }
 
     private fun updatePipParams(width: Int, height: Int, enter: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val ratio = if (width > 0 && height > 0) Rational(width, height) else Rational(16, 9)
-            
             val builder = PictureInPictureParams.Builder()
             builder.setAspectRatio(ratio)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // ✅ CHANGED: Enable Auto Enter for smooth transition
                 builder.setAutoEnterEnabled(true)
-                // ✅ CHANGED: Enable Seamless Resize for smooth morphing/zooming
                 builder.setSeamlessResizeEnabled(true)
             }
             
             try {
                 if (enter) {
-                    val success = enterPictureInPictureMode(builder.build())
-                    if (success) isInPipMode = true
+                    if (enterPictureInPictureMode(builder.build())) isInPipMode = true
                 } else if (isInPipMode) {
                     setPictureInPictureParams(builder.build())
                 }
@@ -415,28 +382,23 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        
         isInPipMode = isInPictureInPictureMode
         
         if (isInPipMode) {
-            // Entered PiP
-            findAndHideRelatedRecycler()
+            binding.relatedChannelsSection.visibility = View.GONE
             binding.playerView.useController = false
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
-            
-            // ✅ ADDED: ZOOM mode ensures video fills the PiP window during resize
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            
         } else {
-            // Exited PiP
             userRequestedPip = false
-            findAndShowRelatedRecycler()
             
-            // ✅ ADDED: Restore standard FIT mode for normal viewing
+            // Restore Layout based on current orientation
+            val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+            adjustLayoutForOrientation(isLandscape)
+            
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             
-            // Restore UI state based on lock status
             if (isLocked) {
                 binding.playerView.useController = false
                 binding.lockOverlay.visibility = View.VISIBLE
@@ -446,7 +408,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 binding.playerView.showController()
                 binding.lockOverlay.visibility = View.GONE
             }
-            hideSystemUI()
+            if (isLandscape) hideSystemUI()
         }
     }
 
@@ -458,37 +420,13 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // ==========================================
-    // UTILS
-    // ==========================================
     private fun toggleFullscreen() {
-        val isLandscape = resources.configuration.orientation != Configuration.ORIENTATION_PORTRAIT
-        if (!isLandscape) {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-            findAndHideRelatedRecycler()
-            btnFullscreen?.setImageResource(R.drawable.ic_fullscreen_exit)
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        requestedOrientation = if (isLandscape) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         } else {
-            requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            findAndShowRelatedRecycler()
-            btnFullscreen?.setImageResource(R.drawable.ic_fullscreen)
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
-    }
-
-    private fun findRelatedRecyclerView(): RecyclerView? {
-        val names = listOf("related_channels_recycler", "relatedChannelsRecycler", "recycler_view_related")
-        for (n in names) {
-            val id = resources.getIdentifier(n, "id", packageName)
-            if (id != 0) return findViewById(id)
-        }
-        return null
-    }
-
-    private fun findAndHideRelatedRecycler() {
-        findRelatedRecyclerView()?.visibility = View.GONE
-    }
-
-    private fun findAndShowRelatedRecycler() {
-        findRelatedRecyclerView()?.visibility = View.VISIBLE
     }
 
     private fun hideSystemUI() {
