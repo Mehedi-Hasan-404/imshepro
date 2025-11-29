@@ -1,4 +1,3 @@
-// app/src/main/java/com/livetvpro/ui/player/ChannelPlayerActivity.kt
 package com.livetvpro.ui.player
 
 import android.app.PictureInPictureParams
@@ -20,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -65,13 +65,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var userRequestedPip = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val updateIntervalMs = 500L  // ✅ Reduced from 1000ms to 500ms for smoother updates
+    private val updateIntervalMs = 500L
     private var isUserScrubbing = false
     
-    // ✅ FIX: Declare lastPosition variable
     private var lastPosition = 0L
     
-    // ✅ Track last displayed position to prevent flickering
+    // Track last displayed position to prevent flickering
     private var lastDisplayedPosition = ""
     private var lastDisplayedDuration = ""
     
@@ -83,7 +82,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     val pos = p.currentPosition
                     val dur = p.duration.takeIf { it > 0 } ?: 0L
                     
-                    // ✅ FIX: Only update if the text actually changed (prevents flickering)
                     val posText = formatTime(pos)
                     val durText = formatTime(dur)
                     
@@ -204,13 +202,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 ).build().also { exo ->
                     binding.playerView.player = exo
                     
-                    // KEY FIX: Set resize mode to FIT to prevent black bars
+                    // Set resize mode to FIT to prevent black bars
                     binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                     
                     val mediaItem = MediaItem.fromUri(channel.streamUrl)
                     exo.setMediaItem(mediaItem)
                     exo.prepare()
                     exo.playWhenReady = true
+                    
                     exo.addListener(object : Player.Listener {
                         override fun onPlaybackStateChanged(playbackState: Int) {
                             when (playbackState) {
@@ -219,6 +218,26 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                         btnPlayPause?.setImageResource(R.drawable.ic_pause)
                                     } else {
                                         btnPlayPause?.setImageResource(R.drawable.ic_play)
+                                    }
+                                }
+                            }
+                        }
+
+                        // ✅ NEW: Update PiP aspect ratio when video size becomes available
+                        override fun onVideoSizeChanged(videoSize: VideoSize) {
+                            super.onVideoSizeChanged(videoSize)
+                            if (isInPipMode && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                val width = videoSize.width
+                                val height = videoSize.height
+                                if (width > 0 && height > 0) {
+                                    try {
+                                        val ratio = Rational(width, height)
+                                        val params = PictureInPictureParams.Builder()
+                                            .setAspectRatio(ratio)
+                                            .build()
+                                        setPictureInPictureParams(params)
+                                    } catch (e: Exception) {
+                                        Timber.e(e, "Failed to update PiP aspect ratio")
                                     }
                                 }
                             }
@@ -281,7 +300,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         btnPip?.visibility = View.VISIBLE
         btnFullscreen?.visibility = View.VISIBLE
         
-        Timber.d("Controller views bound - lock icon set to OPEN (unlocked state)")
+        Timber.d("Controller views bound")
     }
 
     private fun setupControlListenersExact() {
@@ -355,15 +374,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
             toggleFullscreen()
         }
 
-        // TimeBar scrubbing listener
         timeBar?.addListener(object : TimeBar.OnScrubListener {
             override fun onScrubStart(timeBar: TimeBar, position: Long) {
                 isUserScrubbing = true
-                Timber.d("Scrubbing started at position: ${formatTime(position)}")
             }
             
             override fun onScrubMove(timeBar: TimeBar, position: Long) {
-                // Update position text smoothly during scrubbing
                 txtPosition?.text = formatTime(position)
                 lastPosition = position
             }
@@ -372,9 +388,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 if (!canceled) {
                     player?.seekTo(position)
                     lastPosition = position
-                    Timber.d("Scrubbing stopped, seeked to: ${formatTime(position)}")
                 }
-                // Small delay before resuming auto-update to prevent immediate flicker
                 mainHandler.postDelayed({
                     isUserScrubbing = false
                 }, 100)
@@ -393,7 +407,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             toggleLock()
         }
         
-        // ✅ FIX: Initially hide the lock overlay (it should only show when locked)
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
     }
@@ -402,37 +415,21 @@ class ChannelPlayerActivity : AppCompatActivity() {
         isLocked = !isLocked
         
         if (isLocked) {
-            // LOCK: Hide all controls and show unlock overlay
+            // LOCK
             binding.playerView.useController = false
             binding.playerView.hideController()
-            
-            // ✅ FIX: Show the lock overlay with unlock button
             binding.lockOverlay.visibility = View.VISIBLE
             binding.unlockButton.visibility = View.VISIBLE
-            
-            // Update lock button icon to CLOSED
             btnLock?.setImageResource(R.drawable.ic_lock_closed)
-            
-            // Prevent touches from affecting the player
             binding.playerView.setOnTouchListener { _, _ -> true }
-            
-            Timber.d("Player LOCKED - showing unlock button overlay")
         } else {
-            // UNLOCK: Show controls and hide unlock overlay
+            // UNLOCK
             binding.playerView.useController = true
             binding.playerView.showController()
-            
-            // ✅ FIX: Hide the lock overlay (unlock button should not be visible when unlocked)
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
-            
-            // Update lock button icon to OPEN
             btnLock?.setImageResource(R.drawable.ic_lock_open)
-            
-            // Re-enable touch handling
             binding.playerView.setOnTouchListener(null)
-            
-            Timber.d("Player UNLOCKED - hiding unlock button overlay")
         }
     }
 
@@ -464,22 +461,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
         } catch (_: Throwable) {}
         
         binding.playerView.useController = false
-        
-        // Hide lock overlay in PiP mode
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
-        
-        // KEY FIX: Ensure resize mode is FIT before entering PiP
         binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         
-        // ✅ FIX: Use source video dimensions for aspect ratio (prevents ratio changes)
         val aspectRatio = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 val videoFormat = player?.videoFormat
                 if (videoFormat != null && videoFormat.width > 0 && videoFormat.height > 0) {
                     Rational(videoFormat.width, videoFormat.height)
                 } else {
-                    Rational(16, 9) // Fallback to 16:9
+                    Rational(16, 9)
                 }
             } catch (e: Exception) {
                 Timber.w(e, "Could not get video dimensions, using 16:9")
@@ -493,17 +485,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
             val builder = PictureInPictureParams.Builder()
                 .setAspectRatio(aspectRatio)
             
-            // ✅ FIX: For Android 12+, set source rect bounds to prevent ratio changes
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 try {
                     builder.setAutoEnterEnabled(false)
-                    // Lock the expanded aspect ratio to match the set aspect ratio
                     builder.setExpandedAspectRatio(aspectRatio)
                     
-                    // ✅ CRITICAL FIX: Set seamless resize to prevent ratio changes during resize
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        builder.setSeamlessResizeEnabled(true)
-                    }
+                    // 🔴 FIX: Disable seamless resize to prevent ratio distortion during drag
+                    builder.setSeamlessResizeEnabled(false)
+                    
                 } catch (e: Exception) {
                     Timber.w(e, "Could not set expanded aspect ratio")
                 }
@@ -517,9 +506,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         isInPipMode = true
         val success = enterPictureInPictureMode(params)
         
-        if (success) {
-            Timber.d("Successfully entered PiP mode with aspect ratio: $aspectRatio")
-        } else {
+        if (!success) {
             Timber.e("Failed to enter PiP mode")
             isInPipMode = false
             userRequestedPip = false
@@ -528,7 +515,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Auto-enter PiP when user presses home button
         if (!isInPipMode && player?.isPlaying == true && !userRequestedPip) {
             userRequestedPip = true
             enterPipMode()
@@ -542,32 +528,20 @@ class ChannelPlayerActivity : AppCompatActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         
         if (isInPictureInPictureMode) {
-            // Entering PiP mode
             isInPipMode = true
             findAndHideRelatedRecycler()
             binding.playerView.useController = false
-            
-            // ✅ FIX: Hide lock overlay when entering PiP
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
-            
-            // Ensure resize mode is FIT in PiP
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            
-            Timber.d("Entered PiP mode")
         } else {
-            // Exiting PiP mode
             isInPipMode = false
             userRequestedPip = false
             
-            Timber.d("Exiting PiP mode - returning to normal player")
-            
-            // Restore normal player UI
             findAndShowRelatedRecycler()
             binding.playerView.useController = !isLocked
             binding.playerView.showController()
             
-            // ✅ FIX: Restore lock overlay state when exiting PiP
             if (isLocked) {
                 binding.lockOverlay.visibility = View.VISIBLE
                 binding.unlockButton.visibility = View.VISIBLE
@@ -576,10 +550,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 binding.unlockButton.visibility = View.GONE
             }
             
-            // Restore resize mode
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-            
-            // Re-apply system UI settings
             hideSystemUI()
         }
     }
