@@ -13,7 +13,6 @@ import android.util.Rational
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageButton
-import android.widget.TextView
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -227,9 +226,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             btnForward = findViewById(R.id.exo_forward)
             btnFullscreen = findViewById(R.id.exo_fullscreen)
             
-            // Note: exo_position and exo_duration are handled automatically by PlayerView.
-            // We do NOT manually update them anymore to avoid flickering.
-            
             val tbId = resources.getIdentifier("exo_progress", "id", packageName)
             if (tbId != 0) {
                 timeBar = findViewById(tbId)
@@ -327,7 +323,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun showUnlockButton() {
         binding.unlockButton.visibility = View.VISIBLE
-        
         // Auto-hide after 3 seconds
         mainHandler.removeCallbacks(hideUnlockButtonRunnable)
         mainHandler.postDelayed(hideUnlockButtonRunnable, 3000)
@@ -370,7 +365,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // 🖼️ PIP LOGIC (Fixed Ratios)
+    // 🖼️ PIP LOGIC (With Seamless Resize)
     // ==========================================
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -399,9 +394,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
             builder.setAspectRatio(ratio)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                builder.setAutoEnterEnabled(false)
-                // 🛑 CRITICAL: Disable seamless resize to prevent ratio distortion during drag
-                builder.setSeamlessResizeEnabled(false)
+                // ✅ CHANGED: Enable Auto Enter for smooth transition
+                builder.setAutoEnterEnabled(true)
+                // ✅ CHANGED: Enable Seamless Resize for smooth morphing/zooming
+                builder.setSeamlessResizeEnabled(true)
             }
             
             try {
@@ -428,10 +424,17 @@ class ChannelPlayerActivity : AppCompatActivity() {
             binding.playerView.useController = false
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
+            
+            // ✅ ADDED: ZOOM mode ensures video fills the PiP window during resize
+            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            
         } else {
             // Exited PiP
             userRequestedPip = false
             findAndShowRelatedRecycler()
+            
+            // ✅ ADDED: Restore standard FIT mode for normal viewing
+            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             
             // Restore UI state based on lock status
             if (isLocked) {
