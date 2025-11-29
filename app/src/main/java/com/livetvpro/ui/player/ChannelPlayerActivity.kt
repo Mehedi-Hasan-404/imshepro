@@ -15,7 +15,6 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
@@ -26,7 +25,6 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.media3.ui.TimeBar
-import androidx.recyclerview.widget.RecyclerView
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
 import com.livetvpro.databinding.ActivityChannelPlayerBinding
@@ -105,10 +103,11 @@ class ChannelPlayerActivity : AppCompatActivity() {
         setupLockOverlay()
         
         binding.relatedChannelsSection.visibility = View.VISIBLE
-        findAndShowRelatedRecycler() // Keep this if you have load/adapter logic inside
+        findAndShowRelatedRecycler()
     }
 
     private fun setupAspectRatio() {
+        // Calculates 16:9 height based on screen width
         val screenWidth = resources.displayMetrics.widthPixels
         val expected16by9Height = (screenWidth * 9f / 16f).toInt()
         
@@ -171,7 +170,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     )
                 ).build().also { exo ->
                     binding.playerView.player = exo
-                    // Default to FIT mode for standard screen 
+                    // Default to FIT mode for standard screen
                     binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT 
                     
                     val mediaItem = MediaItem.fromUri(channel.streamUrl)
@@ -188,7 +187,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             updatePlayPauseIcon(isPlaying)
                         }
-                        // CRITICAL FIX: Update PiP aspect ratio as soon as video dimensions are known
+                        // CRITICAL: Update PiP aspect ratio as soon as video dimensions are known
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
                             if (videoSize.width > 0 && videoSize.height > 0) {
@@ -402,8 +401,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
             
-            // CRITICAL FIX: Set to FILL mode. The PiP params constrain the window's ratio,
-            // so FILL will occupy the entire window without black bars or visual stretching.
+            // CRITICAL FIX: Set to FILL mode. The PiP window is constrained by the system (via updatePipParams),
+            // so FILL ensures the video image covers the entire constrained window, removing black bars without stretching.
             binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL 
             
         } else {
@@ -453,7 +452,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     // Helper functions for Related Recycler logic
     private fun findAndShowRelatedRecycler() {
-        // Keep this if it contains logic to load or refresh related content
+        // Implement logic to find and show your related channels recycler view here
     }
 
     private fun hideSystemUI() {
