@@ -83,7 +83,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding = ActivityChannelPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Force 16:9 layout aspect ratio immediately
+        // Force 16:9 layout aspect ratio for the main screen view
         setupAspectRatio()
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -104,12 +104,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
         setupPlayerViewInteractions()
         setupLockOverlay()
         
-        // Ensure Related section is visible initially
         binding.relatedChannelsSection.visibility = View.VISIBLE
-        findAndShowRelatedRecycler()
+        findAndShowRelatedRecycler() // Keep this if you have load/adapter logic inside
     }
 
-    // FIXED: Simplified logic. Just sets height. XML pins to Top.
     private fun setupAspectRatio() {
         val screenWidth = resources.displayMetrics.widthPixels
         val expected16by9Height = (screenWidth * 9f / 16f).toInt()
@@ -119,8 +117,18 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.playerContainer.layoutParams = containerParams
     }
 
+    // FIX: Immediate release on finishing the activity
+    override fun onPause() {
+        super.onPause()
+        // If activity is finishing (closing PiP 'X'), stop the player immediately
+        if (isFinishing && player != null) { 
+            releasePlayer()
+        }
+    }
+    
     override fun onStop() {
         super.onStop()
+        // FIX: Check isFinishing to stop audio when user closes PiP window (or navigates away)
         if (isFinishing || !isInPipMode) {
             releasePlayer()
         }
@@ -137,10 +145,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private fun releasePlayer() {
         player?.let {
             try {
-                it.pause()
+                // CRITICAL FIX: Explicitly stop and clear resources to kill background audio
+                it.stop() 
+                it.clearVideoSurface() 
                 it.release()
             } catch (t: Throwable) {
-                Timber.w(t, "releasePlayer")
+                Timber.w(t, "releasePlayer: Error during player release", t)
             }
         }
         player = null
@@ -161,7 +171,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     )
                 ).build().also { exo ->
                     binding.playerView.player = exo
-                    binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // Default to FIT mode for standard screen 
+                    binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT 
                     
                     val mediaItem = MediaItem.fromUri(channel.streamUrl)
                     exo.setMediaItem(mediaItem)
@@ -177,9 +188,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             updatePlayPauseIcon(isPlaying)
                         }
+                        // CRITICAL FIX: Update PiP aspect ratio as soon as video dimensions are known
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            updatePipParams(videoSize.width, videoSize.height)
+                            if (videoSize.width > 0 && videoSize.height > 0) {
+                                updatePipParams(videoSize.width, videoSize.height)
+                            }
                         }
                     })
                 }
@@ -327,11 +341,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
+    // ==========================================
+    // 🖼️ PIP LOGIC (Fixed Ratios and Fill Mode)
+    // ==========================================
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return
 
-        // 1. FIXED: Hide entire related section container BEFORE entering PiP
+        // 1. CRITICAL: Hide entire related section container BEFORE entering PiP
         binding.relatedChannelsSection.visibility = View.GONE
 
         // 2. Hide controls
@@ -348,12 +365,15 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     private fun updatePipParams(width: Int, height: Int, enter: Boolean = false) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Use the actual video dimensions to constrain the PiP window's ratio
             val ratio = if (width > 0 && height > 0) Rational(width, height) else Rational(16, 9)
+            
             val builder = PictureInPictureParams.Builder()
             builder.setAspectRatio(ratio)
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 builder.setAutoEnterEnabled(false)
+                // Essential for smooth, ratio-locked resizing
                 builder.setSeamlessResizeEnabled(true)
             }
             
@@ -377,22 +397,24 @@ class ChannelPlayerActivity : AppCompatActivity() {
         
         if (isInPipMode) {
             // Entered PiP
-            // Double check hiding in case entry was via home gesture
             binding.relatedChannelsSection.visibility = View.GONE
             binding.playerView.useController = false
             binding.lockOverlay.visibility = View.GONE
             binding.unlockButton.visibility = View.GONE
             
-            // Ensure video fits within the resizing PiP window
-            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+            // CRITICAL FIX: Set to FILL mode. The PiP params constrain the window's ratio,
+            // so FILL will occupy the entire window without black bars or visual stretching.
+            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FILL 
             
         } else {
             // Exited PiP
             userRequestedPip = false
             
-            // FIXED: Restore Related Section
+            // Restore Related Section visibility
             binding.relatedChannelsSection.visibility = View.VISIBLE
-            findAndShowRelatedRecycler()
+            
+            // Restore PlayerView to FIT mode for standard screen
+            binding.playerView.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT 
             
             // Restore UI state
             if (isLocked) {
@@ -430,12 +452,8 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // Helper functions for Related Recycler logic
-    private fun findRelatedRecyclerView(): RecyclerView? {
-        return binding.relatedChannelsRecycler
-    }
-
     private fun findAndShowRelatedRecycler() {
-        // Just reload logic if needed, visibility is handled by section container now
+        // Keep this if it contains logic to load or refresh related content
     }
 
     private fun hideSystemUI() {
