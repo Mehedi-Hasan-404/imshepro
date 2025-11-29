@@ -6,14 +6,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
-    
-    <!-- Overlay permission for floating player -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    
-    <!-- Foreground service permission (Android 9+) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
-    <!-- Optional feature declarations (not required) -->
     <uses-feature
         android:name="android.hardware.touchscreen"
         android:required="false" />
@@ -45,15 +40,32 @@
             </intent-filter>
         </activity>
 
-        <!-- Channel player (PiP-enabled, resizable) -->
+        <!-- FIXED: Channel player for PiP, fullscreen, no recreation, no resizing -->
         <activity
             android:name=".ui.player.ChannelPlayerActivity"
             android:exported="false"
-            android:screenOrientation="sensor"
-            android:theme="@style/Theme.LiveTVPro.Fullscreen"
-            android:configChanges="orientation|screenSize|keyboardHidden"
+
+            <!-- Keep stable orientation unless fullscreen -->
+            android:screenOrientation="portrait"
+
+            <!-- PREVENT activity being recreated (this removes 90% of PiP bugs) -->
+            android:configChanges="
+                orientation|
+                screenSize|
+                smallestScreenSize|
+                screenLayout|
+                keyboardHidden|
+                density"
+            
             android:supportsPictureInPicture="true"
-            android:resizeableActivity="true" />
+
+            <!-- Prevent Android from creating duplicate instances -->
+            android:launchMode="singleTask"
+
+            <!-- Prevent Android from resizing whole activity during PiP window resize -->
+            android:resizeableActivity="false"
+
+            android:theme="@style/Theme.LiveTVPro.Fullscreen" />
 
         <!-- Other player activities -->
         <activity
@@ -70,13 +82,13 @@
             android:theme="@style/Theme.LiveTVPro.Fullscreen"
             android:configChanges="orientation|screenSize|keyboardHidden" />
 
-        <!-- Floating Player Service -->
+        <!-- Floating player service -->
         <service
             android:name=".ui.player.FloatingPlayerService"
             android:enabled="true"
             android:exported="false" />
 
-        <!-- Google Play services meta-data -->
+        <!-- Google Play services meta -->
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
