@@ -549,10 +549,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
 
         binding.relatedChannelsRecycler.apply {
-            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+            // ✅ FIX: Use GridLayoutManager with 3 columns
+            layoutManager = androidx.recyclerview.widget.GridLayoutManager(
                 this@ChannelPlayerActivity,
-                androidx.recyclerview.widget.LinearLayoutManager.VERTICAL,
-                false
+                3 // 3 columns
             )
             adapter = relatedChannelsAdapter
             setHasFixedSize(true)
@@ -561,10 +561,15 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     // ✅ NEW: Load related channels from the same category
     private fun loadRelatedChannels() {
+        Timber.d("Starting to load related channels for: ${channel.name} (${channel.id})")
+        
+        // ✅ FIX: Load immediately in background
         viewModel.loadRelatedChannels(channel.categoryId, channel.id)
         
+        // ✅ FIX: Observe only once to avoid multiple triggers
+        viewModel.relatedChannels.removeObservers(this)
         viewModel.relatedChannels.observe(this) { channels ->
-            Timber.d("Loaded ${channels.size} related channels")
+            Timber.d("✅ Received ${channels.size} related channels")
             
             // Update count
             binding.relatedCount.text = channels.size.toString()
@@ -573,8 +578,13 @@ class ChannelPlayerActivity : AppCompatActivity() {
             relatedChannelsAdapter.submitList(channels)
             
             // Show/hide section based on data
-            binding.relatedChannelsSection.visibility = 
-                if (channels.isEmpty()) View.GONE else View.VISIBLE
+            if (channels.isEmpty()) {
+                binding.relatedChannelsSection.visibility = View.GONE
+                Timber.w("No related channels available")
+            } else {
+                binding.relatedChannelsSection.visibility = View.VISIBLE
+                Timber.d("Showing ${channels.size} related channels in 3-column grid")
+            }
         }
     }
 
