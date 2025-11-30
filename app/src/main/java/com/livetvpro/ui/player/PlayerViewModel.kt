@@ -48,7 +48,7 @@ class PlayerViewModel @Inject constructor(
     /**
      * ✅ UPDATED: Load related channels from the same category
      * - Gets ALL channels (Firestore + M3U)
-     * - Filters out current channel
+     * - Filters out current channel IMMEDIATELY
      * - Gets 9 channels: 4 before + 5 after the current channel (if possible)
      * - Falls back to random 9 if position-based selection isn't possible
      */
@@ -72,56 +72,67 @@ class PlayerViewModel @Inject constructor(
                 
                 Timber.d("Total channels loaded: ${allChannels.size}")
                 
-                // Find the index of the current channel
+                // ✅ FIX: Filter out current channel FIRST
+                val availableChannels = allChannels.filter { it.id != currentChannelId }
+                
+                if (availableChannels.isEmpty()) {
+                    Timber.w("No other channels available in this category")
+                    _relatedChannels.value = emptyList()
+                    return@launch
+                }
+                
+                // Find the index of the current channel in the original list
                 val currentIndex = allChannels.indexOfFirst { it.id == currentChannelId }
                 
-                val related = if (currentIndex != -1 && allChannels.size > 1) {
+                val related = if (currentIndex != -1 && availableChannels.size > 0) {
                     // ✅ Position-based selection: Get 4 before + 5 after
                     val beforeCount = 4
                     val afterCount = 5
                     
-                    val startIndex = maxOf(0, currentIndex - beforeCount)
-                    val endIndex = minOf(allChannels.size - 1, currentIndex + afterCount)
-                    
                     val relatedChannels = mutableListOf<Channel>()
                     
-                    // Add channels before current
-                    for (i in startIndex until currentIndex) {
-                        relatedChannels.add(allChannels[i])
+                    // Add channels before current (from available channels)
+                    val beforeStart = maxOf(0, currentIndex - beforeCount)
+                    for (i in beforeStart until currentIndex) {
+                        if (i < allChannels.size && allChannels[i].id != currentChannelId) {
+                            relatedChannels.add(allChannels[i])
+                        }
                     }
                     
-                    // Add channels after current
-                    for (i in (currentIndex + 1)..endIndex) {
-                        relatedChannels.add(allChannels[i])
+                    // Add channels after current (from available channels)
+                    val afterEnd = minOf(allChannels.size - 1, currentIndex + afterCount)
+                    for (i in (currentIndex + 1)..afterEnd) {
+                        if (i < allChannels.size && allChannels[i].id != currentChannelId) {
+                            relatedChannels.add(allChannels[i])
+                        }
                     }
                     
-                    Timber.d("Position-based: Selected ${relatedChannels.size} channels (index: $currentIndex, range: $startIndex-$endIndex)")
+                    Timber.d("Position-based: Selected ${relatedChannels.size} channels around index $currentIndex")
                     
                     // If we have less than 9, add random channels to fill up
-                    if (relatedChannels.size < 9) {
-                        val remaining = allChannels
-                            .filter { it.id != currentChannelId && !relatedChannels.contains(it) }
+                    if (relatedChannels.size < 9 && availableChannels.size > relatedChannels.size) {
+                        val remaining = availableChannels
+                            .filter { !relatedChannels.contains(it) }
                             .shuffled()
                             .take(9 - relatedChannels.size)
                         relatedChannels.addAll(remaining)
                         Timber.d("Added ${remaining.size} random channels to fill up to ${relatedChannels.size}")
                     }
                     
-                    relatedChannels
+                    relatedChannels.take(9) // Ensure max 9 channels
                 } else {
-                    // ✅ Fallback: Random 9 channels
-                    Timber.d("Using fallback random selection")
-                    allChannels
-                        .filter { it.id != currentChannelId }
+                    // ✅ Fallback: Random 9 channels (already filtered)
+                    Timber.d("Using fallback random selection from ${availableChannels.size} channels")
+                    availableChannels
                         .shuffled()
                         .take(9)
                 }
                 
-                _relatedChannels.value = related
-                Timber.d("Successfully loaded ${related.size} related channels")
+                _relatedChannels.postValue(related)
+                Timber.d("✅ Successfully loaded ${related.size} related channels")
             } catch (e: Exception) {
                 Timber.e(e, "Error loading related channels")
-                _relatedChannels.value = emptyList()
+                _relatedChannels.postValue(emptyList())
             }
         }
     }
