@@ -8,7 +8,7 @@
     android:layout_height="match_parent"
     tools:context="com.livetvpro.ui.player.ChannelPlayerActivity">
 
-    <!-- ░░░ TOP PLAYER AREA ░░░ -->
+    <!-- █▓▒░ TOP PLAYER AREA ░▒▓█ -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/player_container"
         android:layout_width="0dp"
@@ -18,7 +18,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintDimensionRatio="16:9">
 
-        <!-- 🎬 MEDIA3 PlayerView (correct namespace for androidx.media3) -->
+        <!-- 🎬 MEDIA3 PlayerView -->
         <androidx.media3.ui.PlayerView
             android:id="@+id/playerView"
             android:layout_width="0dp"
@@ -27,12 +27,10 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-
             android:keepScreenOn="true"
             android:background="@android:color/black"
             app:use_controller="true"
-            app:controller_layout_id="@layout/exo_modern_player_controls"
-            />
+            app:controller_layout_id="@layout/exo_modern_player_controls" />
 
         <!-- ⏳ BUFFERING SPINNER -->
         <ProgressBar
@@ -95,15 +93,14 @@
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-
-
-    <!-- ░░░ RELATED CHANNELS SECTION BELOW PLAYER ░░░ -->
+    <!-- █▓▒░ RELATED CHANNELS SECTION BELOW PLAYER ░▒▓█ -->
     <LinearLayout
         android:id="@+id/related_channels_section"
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:padding="8dp"
+        android:background="?attr/colorSurface"
         app:layout_constraintTop_toBottomOf="@id/player_container"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -114,7 +111,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="8dp">
 
             <TextView
                 android:id="@+id/relatedTitle"
@@ -123,6 +124,7 @@
                 android:text="Related Channels"
                 android:textStyle="bold"
                 android:textSize="16sp"
+                android:textColor="?attr/colorOnSurface"
                 android:layout_weight="1"/>
 
             <TextView
@@ -130,18 +132,22 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
+                android:textColor="?attr/colorOnSurface"
+                android:alpha="0.7"
                 android:layout_marginStart="8dp"/>
         </LinearLayout>
 
-        <!-- RecyclerView -->
+        <!-- ✅ 3-COLUMN GRID RecyclerView -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/relatedChannelsRecycler"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="8dp"
             android:layout_weight="1"
             android:clipToPadding="false"
-            android:paddingBottom="8dp"/>
+            android:paddingBottom="8dp"
+            tools:listitem="@layout/item_related_channel_modern"
+            tools:itemCount="9" />
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
