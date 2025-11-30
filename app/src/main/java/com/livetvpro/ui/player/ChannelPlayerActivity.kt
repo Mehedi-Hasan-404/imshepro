@@ -38,6 +38,7 @@ import androidx.media3.ui.TrackSelectionDialogBuilder
 import com.livetvpro.R
 import com.livetvpro.data.models.Channel
 import com.livetvpro.databinding.ActivityChannelPlayerBinding
+import com.livetvpro.ui.adapters.RelatedChannelAdapter
 import dagger.hilt.android.AndroidEntryPoint
 import timber.log.Timber
 
@@ -51,6 +52,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var player: ExoPlayer? = null
     private var trackSelector: DefaultTrackSelector? = null
     private lateinit var channel: Channel
+    
+    // ✅ NEW: Related channels adapter
+    private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
 
     // Controller Views
     private var btnBack: ImageButton? = null
@@ -147,6 +151,10 @@ class ChannelPlayerActivity : AppCompatActivity() {
         setupControlListenersExact()
         setupPlayerViewInteractions()
         setupLockOverlay()
+        
+        // ✅ NEW: Setup related channels
+        setupRelatedChannels()
+        loadRelatedChannels()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -531,6 +539,64 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
+    }
+
+    // ✅ NEW: Setup related channels RecyclerView
+    private fun setupRelatedChannels() {
+        relatedChannelsAdapter = RelatedChannelAdapter { relatedChannel ->
+            // When a related channel is clicked, switch to it
+            switchChannel(relatedChannel)
+        }
+
+        binding.relatedChannelsRecycler.apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+                this@ChannelPlayerActivity,
+                androidx.recyclerview.widget.LinearLayoutManager.VERTICAL,
+                false
+            )
+            adapter = relatedChannelsAdapter
+            setHasFixedSize(true)
+        }
+    }
+
+    // ✅ NEW: Load related channels from the same category
+    private fun loadRelatedChannels() {
+        viewModel.loadRelatedChannels(channel.categoryId, channel.id)
+        
+        viewModel.relatedChannels.observe(this) { channels ->
+            Timber.d("Loaded ${channels.size} related channels")
+            
+            // Update count
+            binding.relatedCount.text = channels.size.toString()
+            
+            // Submit to adapter
+            relatedChannelsAdapter.submitList(channels)
+            
+            // Show/hide section based on data
+            binding.relatedChannelsSection.visibility = 
+                if (channels.isEmpty()) View.GONE else View.VISIBLE
+        }
+    }
+
+    // ✅ NEW: Switch to a different channel
+    private fun switchChannel(newChannel: Channel) {
+        Timber.d("Switching to channel: ${newChannel.name}")
+        
+        // Release current player
+        player?.release()
+        player = null
+        
+        // Update current channel
+        channel = newChannel
+        
+        // Update UI
+        tvChannelName?.text = channel.name
+        
+        // Reinitialize player with new channel
+        setupPlayer()
+        
+        // Reload related channels for the new channel
+        loadRelatedChannels()
     }
 
     private fun showUnlockButton() {
