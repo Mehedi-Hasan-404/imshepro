@@ -395,12 +395,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
             controllerShowTimeoutMs = 5000
             controllerHideOnTouch = true
             setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-            
-            // ✅ FIX: Prevent controller from auto-hiding too quickly
-            setControllerVisibilityListener { visibility ->
-                // Don't allow rapid visibility changes
-                Timber.d("Controller visibility changed: $visibility")
-            }
         }
     }
 
