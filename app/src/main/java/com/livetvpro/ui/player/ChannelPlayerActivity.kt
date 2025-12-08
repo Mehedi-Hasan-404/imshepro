@@ -53,7 +53,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     private var trackSelector: DefaultTrackSelector? = null
     private lateinit var channel: Channel
     
-    // ✅ NEW: Related channels adapter
+    // Related channels adapter
     private lateinit var relatedChannelsAdapter: RelatedChannelAdapter
 
     // Controller Views
@@ -89,6 +89,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
             
             if (intent?.action == ACTION_MEDIA_CONTROL) {
                 val controlType = intent.getIntExtra(EXTRA_CONTROL_TYPE, 0)
+                
                 Timber.d("PiP Control Type: $controlType")
                 
                 when (controlType) {
@@ -152,7 +153,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         setupPlayerViewInteractions()
         setupLockOverlay()
         
-        // ✅ NEW: Setup related channels
+        // Setup related channels
         setupRelatedChannels()
         loadRelatedChannels()
     }
@@ -170,7 +171,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * ✅ Unified method to apply all orientation-based settings
+     * Unified method to apply all orientation-based settings
      */
     private fun applyOrientationSettings(isLandscape: Boolean) {
         setWindowFlags(isLandscape)
@@ -210,7 +211,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * ✅ Properly manage system UI visibility and cutout mode
+     * Properly manage system UI visibility and cutout mode
      */
     private fun setWindowFlags(isLandscape: Boolean) {
         if (isLandscape) {
@@ -266,14 +267,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        
         Timber.d("onStop() called - isInPipMode: $isInPipMode, isFinishing: $isFinishing")
         
-        // ✅ ALWAYS release player when activity stops
-        // This ensures proper cleanup when:
-        // 1. User swipes away PiP
-        // 2. User clicks system close button in PiP
-        // 3. Activity is destroyed normally
+        // ALWAYS release player when activity stops
         releasePlayer()
     }
 
@@ -302,25 +298,108 @@ class ChannelPlayerActivity : AppCompatActivity() {
         player = null
     }
 
+    /**
+     * Parse inline headers from URL
+     * Format: https://example.com/stream.m3u8?id=123|Referer=https://example.com|User-Agent=Mozilla
+     * Returns: Pair(cleanUrl, headersMap)
+     */
+    private fun parseInlineHeaders(urlLine: String): Pair<String, Map<String, String>> {
+        val parts = urlLine.split("|")
+        
+        if (parts.size == 1) {
+            return Pair(urlLine, emptyMap())
+        }
+        
+        val streamUrl = parts[0].trim()
+        val headers = mutableMapOf<String, String>()
+        
+        Timber.d("Parsing inline headers from URL...")
+        
+        for (i in 1 until parts.size) {
+            val headerPart = parts[i].trim()
+            val separatorIndex = headerPart.indexOf('=')
+            
+            if (separatorIndex > 0) {
+                val headerName = headerPart.substring(0, separatorIndex).trim()
+                val headerValue = headerPart.substring(separatorIndex + 1).trim()
+                
+                when (headerName.lowercase()) {
+                    "referer", "referrer" -> {
+                        headers["Referer"] = headerValue
+                        Timber.d("  ✓ Referer: ${headerValue.take(80)}")
+                    }
+                    "user-agent", "useragent" -> {
+                        headers["User-Agent"] = headerValue
+                        Timber.d("  ✓ User-Agent: ${headerValue.take(80)}")
+                    }
+                    "origin" -> {
+                        headers["Origin"] = headerValue
+                        Timber.d("  ✓ Origin: $headerValue")
+                    }
+                    "cookie" -> {
+                        headers["Cookie"] = headerValue
+                        Timber.d("  ✓ Cookie: ${headerValue.take(50)}...")
+                    }
+                    else -> {
+                        headers[headerName] = headerValue
+                        Timber.d("  ✓ $headerName: ${headerValue.take(50)}...")
+                    }
+                }
+            }
+        }
+        
+        Timber.d("Extracted clean URL: ${streamUrl.take(100)}")
+        Timber.d("Parsed ${headers.size} inline headers")
+        
+        return Pair(streamUrl, headers)
+    }
+
     private fun setupPlayer() {
         player?.release()
         trackSelector = DefaultTrackSelector(this)
         
         try {
+            // Parse inline headers from stream URL
+            val (cleanUrl, inlineHeaders) = parseInlineHeaders(channel.streamUrl)
+            
+            // Prepare headers map
+            val headers = mutableMapOf<String, String>()
+            headers.putAll(inlineHeaders)
+            
+            // Add default user agent if not provided
+            if (!headers.containsKey("User-Agent")) {
+                headers["User-Agent"] = "LiveTVPro/1.0"
+            }
+            
+            Timber.d("═══════════════════════════════════════")
+            Timber.d("Setting up ExoPlayer for: ${channel.name}")
+            Timber.d("Clean URL: ${cleanUrl.take(100)}")
+            Timber.d("Total Headers: ${headers.size}")
+            headers.forEach { (key, value) ->
+                Timber.d("  → $key: ${value.take(80)}")
+            }
+            Timber.d("═══════════════════════════════════════")
+            
+            // Create DataSource with custom headers
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+                .setDefaultRequestProperties(headers)
+                .setConnectTimeoutMs(30000)
+                .setReadTimeoutMs(30000)
+                .setAllowCrossProtocolRedirects(true)
+            
             player = ExoPlayer.Builder(this)
                 .setTrackSelector(trackSelector!!)
                 .setMediaSourceFactory(
-                    DefaultMediaSourceFactory(this).setDataSourceFactory(
-                        DefaultHttpDataSource.Factory()
-                            .setUserAgent("LiveTVPro/1.0")
-                            .setAllowCrossProtocolRedirects(true)
-                    )
+                    DefaultMediaSourceFactory(this)
+                        .setDataSourceFactory(dataSourceFactory)
                 )
                 .setSeekBackIncrementMs(skipMs)
                 .setSeekForwardIncrementMs(skipMs)
                 .build().also { exo ->
                     binding.playerView.player = exo
-                    val mediaItem = MediaItem.fromUri(channel.streamUrl)
+                    
+                    // Use CLEAN URL (without inline headers)
+                    val mediaItem = MediaItem.fromUri(cleanUrl)
                     exo.setMediaItem(mediaItem)
                     exo.prepare()
                     exo.playWhenReady = true
@@ -541,7 +620,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.unlockButton.visibility = View.GONE
     }
 
-    // ✅ NEW: Setup related channels RecyclerView
+    // Setup related channels RecyclerView
     private fun setupRelatedChannels() {
         relatedChannelsAdapter = RelatedChannelAdapter { relatedChannel ->
             // When a related channel is clicked, switch to it
@@ -549,24 +628,24 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
 
         binding.relatedChannelsRecycler.apply {
-            // ✅ FIX: Use GridLayoutManager with 3 columns
+            // Use GridLayoutManager with 3 columns
             layoutManager = androidx.recyclerview.widget.GridLayoutManager(
                 this@ChannelPlayerActivity,
-                3 // 3 columns
+                3 
             )
             adapter = relatedChannelsAdapter
             setHasFixedSize(true)
         }
     }
 
-    // ✅ NEW: Load related channels from the same category
+    // Load related channels from the same category
     private fun loadRelatedChannels() {
         Timber.d("Starting to load related channels for: ${channel.name} (${channel.id})")
         
-        // ✅ FIX: Load immediately in background
+        // Load immediately in background
         viewModel.loadRelatedChannels(channel.categoryId, channel.id)
         
-        // ✅ FIX: Observe only once to avoid multiple triggers
+        // Observe only once to avoid multiple triggers
         viewModel.relatedChannels.removeObservers(this)
         viewModel.relatedChannels.observe(this) { channels ->
             Timber.d("✅ Received ${channels.size} related channels")
@@ -588,7 +667,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // ✅ NEW: Switch to a different channel
+    // Switch to a different channel
     private fun switchChannel(newChannel: Channel) {
         Timber.d("Switching to channel: ${newChannel.name}")
         
@@ -649,7 +728,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     }
 
     // ========== PIP LOGIC ==========
-    
+
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             Toast.makeText(this, "PiP not supported", Toast.LENGTH_SHORT).show()
@@ -690,7 +769,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 val builder = PictureInPictureParams.Builder()
                 builder.setAspectRatio(ratio)
                 
-                // ✅ ONLY Play/Pause control (system provides close button)
+                // ONLY Play/Pause control (system provides close button)
                 val actions = ArrayList<RemoteAction>()
                 val isPlaying = player?.isPlaying == true
                 
@@ -761,13 +840,13 @@ class ChannelPlayerActivity : AppCompatActivity() {
             
             Timber.d("Entered PiP mode")
         } else {
-            // ✅ Exiting PiP
+            // Exiting PiP
             userRequestedPip = false
             
             // Check if activity is finishing (user closed PiP from system)
             if (isFinishing) {
                 Timber.d("Activity is finishing - PiP was closed by user via system gesture/button")
-                // Player will be released in onStop() → Activity will close completely
+                // Player will be released in onStop() -> Activity will close completely
                 return
             }
             
@@ -805,7 +884,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
     override fun finish() {
         Timber.d("finish() called - isInPipMode: $isInPipMode, isFinishing: $isFinishing")
         
-        // ✅ Simple, clean finish - just release and close
+        // Simple, clean finish - just release and close
         try {
             releasePlayer()
             isInPipMode = false
