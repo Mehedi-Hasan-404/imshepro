@@ -24,14 +24,12 @@ object M3uParser {
 
     suspend fun parseM3uFromUrl(m3uUrl: String): List<M3uChannel> {
         return try {
-            val trimmedUrl = m3uUrl.trim()
-            // Check if it's a JSON array first (raw text check)
-            if (trimmedUrl.startsWith("[") || trimmedUrl.startsWith("{")) {
-                Timber.d("Detected JSON format playlist from string content")
-                return parseJsonPlaylist(trimmedUrl)
+            if (m3uUrl.trim().startsWith("[") || m3uUrl.trim().startsWith("{")) {
+                Timber.d("Detected JSON format playlist")
+                return parseJsonPlaylist(m3uUrl)
             }
             
-            val url = URL(trimmedUrl)
+            val url = URL(m3uUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = 15000
@@ -45,7 +43,6 @@ object M3uParser {
                 connection.disconnect()
 
                 val trimmedContent = content.trim()
-                // Check if response content is JSON
                 if (trimmedContent.startsWith("[") || trimmedContent.startsWith("{")) {
                     Timber.d("Response is JSON format")
                     return parseJsonPlaylist(trimmedContent)
@@ -62,121 +59,6 @@ object M3uParser {
         }
     }
 
-    /**
-     * Parse standard M3U content, including #EXTHTTP and #EXTVLCOPT tags
-     */
-    fun parseM3uContent(content: String): List<M3uChannel> {
-        val channels = mutableListOf<M3uChannel>()
-        val lines = content.lines().map { it.trim() }.filter { it.isNotEmpty() }
-
-        if (lines.isEmpty()) {
-            Timber.e("Empty M3U file")
-            return emptyList()
-        }
-
-        var currentName = ""
-        var currentLogo = ""
-        var currentGroup = ""
-        var currentUserAgent: String? = null
-        var currentCookies = mutableMapOf<String, String>()
-        var currentHeaders = mutableMapOf<String, String>()
-
-        // Helper function to save the current channel and reset state
-        fun saveChannel(urlLine: String) {
-            if (currentName.isNotEmpty()) {
-                // Parse any inline headers in the URL itself (e.g. url|User-Agent=...)
-                val (cleanUrl, inlineHeaders) = parseInlineHeaders(urlLine)
-                
-                // Combine headers
-                val finalHeaders = currentHeaders.toMutableMap()
-                finalHeaders.putAll(inlineHeaders)
-                
-                // Build the channel object
-                channels.add(
-                    M3uChannel(
-                        name = currentName,
-                        logoUrl = currentLogo,
-                        streamUrl = cleanUrl,
-                        groupTitle = currentGroup,
-                        userAgent = currentUserAgent,
-                        cookies = currentCookies.toMap(),
-                        httpHeaders = finalHeaders
-                    )
-                )
-            }
-            // Reset state
-            currentName = ""
-            currentLogo = ""
-            currentGroup = ""
-            currentUserAgent = null
-            currentCookies = mutableMapOf()
-            currentHeaders = mutableMapOf()
-        }
-
-        for (line in lines) {
-            when {
-                // 1. Channel Info
-                line.startsWith("#EXTINF:") -> {
-                    // If we hit a new EXTINF but haven't saved previous (rare case of missing URL), reset
-                    if (currentName.isNotEmpty()) {
-                        // Optionally log warning or reset
-                    }
-                    currentName = extractChannelName(line)
-                    currentLogo = extractAttribute(line, "tvg-logo")
-                    currentGroup = extractAttribute(line, "group-title")
-                }
-                
-                // 2. User Agent (VLC Option)
-                line.startsWith("#EXTVLCOPT", ignoreCase = true) && line.contains("http-user-agent", ignoreCase = true) -> {
-                    val ua = line.substringAfter("http-user-agent=", "").trim()
-                    if (ua.isNotEmpty()) {
-                        currentUserAgent = ua
-                        Timber.d("Found User-Agent: $ua")
-                    }
-                }
-                
-                // 3. HTTP Headers/Cookies (JSON format)
-                line.startsWith("#EXTHTTP:", ignoreCase = true) -> {
-                    try {
-                        val jsonStr = line.substringAfter("#EXTHTTP:").trim()
-                        val json = JSONObject(jsonStr)
-                        
-                        // Handle Cookie
-                        if (json.has("cookie")) {
-                            val rawCookie = json.getString("cookie")
-                            // Store the raw cookie string directly under "Cookie"
-                            // Note: If you have multiple cookies separated by semicolon, 
-                            // you might want to parse them, but for headers, sending the full string usually works.
-                            currentCookies["Cookie"] = rawCookie
-                        }
-                        
-                        // Handle other headers in the JSON object
-                        val keys = json.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            if (!key.equals("cookie", ignoreCase = true)) {
-                                currentHeaders[key] = json.getString(key)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Timber.e("Error parsing #EXTHTTP JSON: ${e.message}")
-                    }
-                }
-                
-                // 4. Stream URL (Lines not starting with #)
-                !line.startsWith("#") -> {
-                    saveChannel(line)
-                }
-            }
-        }
-
-        Timber.d("Parsed ${channels.size} channels from M3U")
-        return channels
-    }
-
-    /**
-     * Parse JSON playlist format (Legacy support)
-     */
     fun parseJsonPlaylist(jsonContent: String): List<M3uChannel> {
         val channels = mutableListOf<M3uChannel>()
         
@@ -199,7 +81,7 @@ object M3uParser {
                     val cookies = mutableMapOf<String, String>()
                     
                     if (cookie.isNotEmpty()) {
-                        cookies["Cookie"] = cookie
+                        parseCookieString(cookie, cookies)
                     }
                     
                     referer?.let { headers["Referer"] = it }
@@ -216,13 +98,120 @@ object M3uParser {
                             httpHeaders = headers
                         )
                     )
+                    
+                    Timber.d("Parsed JSON channel: $name with ${cookies.size} cookies")
                 }
             }
+            
             Timber.d("Parsed ${channels.size} channels from JSON playlist")
         } catch (e: Exception) {
             Timber.e(e, "Error parsing JSON playlist")
         }
         
+        return channels
+    }
+
+    fun parseM3uContent(content: String): List<M3uChannel> {
+        val channels = mutableListOf<M3uChannel>()
+        val lines = content.lines()
+
+        if (lines.isEmpty() || !lines[0].startsWith("#EXTM3U")) {
+            Timber.e("Invalid M3U file format")
+            return emptyList()
+        }
+
+        var currentName = ""
+        var currentLogo = ""
+        var currentGroup = ""
+        var currentUserAgent: String? = null
+        var currentCookies = mutableMapOf<String, String>()
+        var currentHeaders = mutableMapOf<String, String>()
+
+        for (i in lines.indices) {
+            val line = lines[i].trim()
+
+            when {
+                line.startsWith("#EXTINF:") -> {
+                    currentName = extractChannelName(line)
+                    currentLogo = extractAttribute(line, "tvg-logo")
+                    currentGroup = extractAttribute(line, "group-title")
+                }
+                
+                line.startsWith("#EXTVLCOPT:http-user-agent=") -> {
+                    currentUserAgent = line.substringAfter("http-user-agent=").trim()
+                    Timber.d("Parsed user-agent: $currentUserAgent")
+                }
+                
+                line.startsWith("#EXTVLCOPT:http-origin=") -> {
+                    val origin = line.substringAfter("http-origin=").trim()
+                    currentHeaders["Origin"] = origin
+                    Timber.d("Parsed origin: $origin")
+                }
+                
+                line.startsWith("#EXTVLCOPT:http-referrer=") -> {
+                    val referrer = line.substringAfter("http-referrer=").trim()
+                    currentHeaders["Referer"] = referrer
+                    Timber.d("Parsed referrer: $referrer")
+                }
+                
+                // ✅ NEW: Parse #EXTHTTP with JSON cookies
+                line.startsWith("#EXTHTTP:") -> {
+                    try {
+                        val jsonStr = line.substringAfter("#EXTHTTP:").trim()
+                        val json = JSONObject(jsonStr)
+                        
+                        if (json.has("cookie")) {
+                            val cookieStr = json.getString("cookie")
+                            parseCookieString(cookieStr, currentCookies)
+                            Timber.d("✅ Parsed cookie from #EXTHTTP: ${cookieStr.take(80)}...")
+                        }
+                        
+                        // Parse other headers from JSON
+                        json.keys().forEach { key ->
+                            if (key != "cookie") {
+                                currentHeaders[key] = json.getString(key)
+                                Timber.d("✅ Parsed header from #EXTHTTP: $key")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Timber.e(e, "❌ Error parsing #EXTHTTP line: $line")
+                    }
+                }
+                
+                line.isNotEmpty() && !line.startsWith("#") -> {
+                    if (currentName.isNotEmpty()) {
+                        val (streamUrl, inlineHeaders) = parseInlineHeaders(line)
+                        
+                        val finalHeaders = currentHeaders.toMutableMap().apply {
+                            putAll(inlineHeaders)
+                        }
+                        
+                        channels.add(
+                            M3uChannel(
+                                name = currentName,
+                                logoUrl = currentLogo,
+                                streamUrl = streamUrl,
+                                groupTitle = currentGroup,
+                                userAgent = currentUserAgent,
+                                cookies = currentCookies.toMap(),
+                                httpHeaders = finalHeaders
+                            )
+                        )
+                        
+                        Timber.d("✅ Added channel: $currentName with ${currentCookies.size} cookies, ${finalHeaders.size} headers")
+                    }
+                    
+                    currentName = ""
+                    currentLogo = ""
+                    currentGroup = ""
+                    currentUserAgent = null
+                    currentCookies = mutableMapOf()
+                    currentHeaders = mutableMapOf()
+                }
+            }
+        }
+
+        Timber.d("Parsed ${channels.size} channels from M3U")
         return channels
     }
 
@@ -241,10 +230,20 @@ object M3uParser {
         return match?.groupValues?.getOrNull(1) ?: ""
     }
 
+    private fun parseCookieString(cookieStr: String, cookieMap: MutableMap<String, String>) {
+        cookieStr.split(";").forEach { cookie ->
+            val parts = cookie.trim().split("=", limit = 2)
+            if (parts.size == 2) {
+                cookieMap[parts[0].trim()] = parts[1].trim()
+            }
+        }
+    }
+
     private fun parseInlineHeaders(urlLine: String): Pair<String, Map<String, String>> {
         val parts = urlLine.split("|")
+        
         if (parts.size == 1) {
-            return Pair(urlLine.trim(), emptyMap())
+            return Pair(urlLine, emptyMap())
         }
         
         val streamUrl = parts[0].trim()
@@ -258,12 +257,11 @@ object M3uParser {
                 val headerName = headerPart.substring(0, separatorIndex).trim()
                 val headerValue = headerPart.substring(separatorIndex + 1).trim()
                 
-                // Normalize common headers
                 when (headerName.lowercase()) {
-                    "user-agent", "useragent" -> headers["User-Agent"] = headerValue
                     "referer", "referrer" -> headers["Referer"] = headerValue
-                    "cookie" -> headers["Cookie"] = headerValue
+                    "user-agent", "useragent" -> headers["User-Agent"] = headerValue
                     "origin" -> headers["Origin"] = headerValue
+                    "cookie" -> parseCookieString(headerValue, headers)
                     else -> headers[headerName] = headerValue
                 }
             }
@@ -289,7 +287,6 @@ object M3uParser {
         categoryName: String
     ): List<Channel> {
         return m3uChannels.map { m3uChannel ->
-            // Build stream URL with inline headers for compatibility with Player logic
             val streamUrlWithHeaders = buildStreamUrlWithHeaders(m3uChannel)
             
             Channel(
@@ -305,34 +302,20 @@ object M3uParser {
         }
     }
 
-    /**
-     * Re-packs headers into the URL string using the pipe delimiter |
-     * This allows us to store everything in the single 'streamUrl' string field
-     * of the Channel data model, which the PlayerActivity then unpacks.
-     */
     private fun buildStreamUrlWithHeaders(m3uChannel: M3uChannel): String {
         val parts = mutableListOf(m3uChannel.streamUrl)
         
-        // 1. Add User Agent
         m3uChannel.userAgent?.let {
             parts.add("User-Agent=$it")
         }
         
-        // 2. Add Cookies
-        if (m3uChannel.cookies.isNotEmpty()) {
-            // Join all cookies into one "Cookie" header value if multiple exist
-            val cookieValue = m3uChannel.cookies.entries.joinToString(";") { 
-                if (it.key == "Cookie") it.value else "${it.key}=${it.value}" 
-            }
-            parts.add("Cookie=$cookieValue")
+        m3uChannel.httpHeaders.forEach { (key, value) ->
+            parts.add("$key=$value")
         }
         
-        // 3. Add other headers
-        m3uChannel.httpHeaders.forEach { (key, value) ->
-            // Avoid duplicating User-Agent or Cookie if already added
-            if (!key.equals("User-Agent", ignoreCase = true) && !key.equals("Cookie", ignoreCase = true)) {
-                parts.add("$key=$value")
-            }
+        if (m3uChannel.cookies.isNotEmpty()) {
+            val cookieStr = m3uChannel.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
+            parts.add("Cookie=$cookieStr")
         }
         
         return parts.joinToString("|")
