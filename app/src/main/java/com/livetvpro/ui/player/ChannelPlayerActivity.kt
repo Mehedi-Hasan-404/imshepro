@@ -513,70 +513,89 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Create ClearKey DRM Session Manager using JWK format and Base64Url
-     */
-    private fun createClearKeyDrmManager(
-        keyIdHex: String,
-        keyHex: String,
-        dataSourceFactory: DefaultHttpDataSource.Factory
-    ): DefaultDrmSessionManager? {
-        return try {
-            // ClearKey UUID (defined in MPEG-CENC spec)
-            val clearKeyUuid = UUID.fromString("e2719d58-a985-b3c9-781a-b030af78d30e")
-            
-            Timber.d("🔐 Creating ClearKey DRM manager")
-            
-            // Convert Hex to Base64Url (without padding, URL-safe)
-            val keyIdBase64 = hexToBase64Url(keyIdHex)
-            val keyBase64 = hexToBase64Url(keyHex)
+    // ✅ FIXED createClearKeyDrmManager() method
+// Replace the existing method in ChannelPlayerActivity.kt
 
-            // Construct JWK (JSON Web Key) Set for ClearKey
-            val jwkSet = """
-                {
-                  "keys": [
+private fun createClearKeyDrmManager(
+    keyIdHex: String,
+    keyHex: String,
+    dataSourceFactory: DefaultHttpDataSource.Factory
+): DefaultDrmSessionManager? {
+    return try {
+        // ClearKey UUID (defined in MPEG-CENC spec)
+        val clearKeyUuid = UUID.fromString("e2719d58-a985-b3c9-781a-b030af78d30e")
+        
+        Timber.d("🔐 Creating ClearKey DRM manager")
+        Timber.d("🔑 KeyID: ${keyIdHex.take(8)}...")
+        Timber.d("🔑 Key: ${keyHex.take(8)}...")
+        
+        // ✅ FIX 1: Create proper LocalMediaDrmCallback with keys
+        val drmCallback = object : androidx.media3.exoplayer.drm.MediaDrmCallback {
+            override fun executeProvisionRequest(
+                uuid: UUID,
+                request: androidx.media3.exoplayer.drm.ExoMediaDrm.ProvisionRequest
+            ): ByteArray {
+                // Not needed for ClearKey
+                return ByteArray(0)
+            }
+
+            override fun executeKeyRequest(
+                uuid: UUID,
+                request: androidx.media3.exoplayer.drm.ExoMediaDrm.KeyRequest
+            ): ByteArray {
+                // ✅ FIX 2: Build proper ClearKey response
+                val keyIdBytes = hexToBytes(keyIdHex)
+                val keyBytes = hexToBytes(keyHex)
+                
+                // Base64url encode (no padding, URL-safe)
+                val keyIdBase64 = android.util.Base64.encodeToString(
+                    keyIdBytes,
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                )
+                val keyBase64 = android.util.Base64.encodeToString(
+                    keyBytes,
+                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                )
+                
+                // Build JWK response
+                val jwkResponse = """
                     {
-                      "kty": "oct",
-                      "k": "$keyBase64",
-                      "kid": "$keyIdBase64"
+                      "keys": [
+                        {
+                          "kty": "oct",
+                          "k": "$keyBase64",
+                          "kid": "$keyIdBase64"
+                        }
+                      ]
                     }
-                  ]
-                }
-            """.trimIndent()
-            
-            // Encode the JWK set to a data URI
-            val licenseUrl = "data:application/json;base64," + 
-                Base64.encodeToString(jwkSet.toByteArray(), Base64.NO_WRAP)
-            
-            val drmCallback = HttpMediaDrmCallback(licenseUrl, dataSourceFactory)
-            
-            DefaultDrmSessionManager.Builder()
-                .setUuidAndExoMediaDrmProvider(clearKeyUuid, FrameworkMediaDrm.DEFAULT_PROVIDER)
-                .setMultiSession(false)
-                .build(drmCallback).also {
-                    Timber.d("✅ ClearKey DRM manager created successfully")
-                }
-        } catch (e: Exception) {
-            Timber.e(e, "❌ Failed to create ClearKey DRM manager")
-            null
+                """.trimIndent()
+                
+                Timber.d("🔐 Generated JWK response for ClearKey")
+                return jwkResponse.toByteArray()
+            }
         }
-    }
-
-    /**
-     * Convert hex string to base64url (RFC 4648)
-     */
-    private fun hexToBase64Url(hex: String): String {
-        try {
-            val bytes = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            return Base64.encodeToString(
-                bytes, 
-                Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+        
+        // ✅ FIX 3: Create DRM session manager
+        DefaultDrmSessionManager.Builder()
+            .setUuidAndExoMediaDrmProvider(
+                clearKeyUuid,
+                androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER
             )
-        } catch (e: Exception) {
-            Timber.e(e, "Error converting hex to base64")
-            return ""
-        }
+            .setMultiSession(false)
+            .build(drmCallback).also {
+                Timber.d("✅ ClearKey DRM manager created successfully")
+            }
+    } catch (e: Exception) {
+        Timber.e(e, "❌ Failed to create ClearKey DRM manager")
+        null
     }
+}
+
+// ✅ HELPER: Convert hex string to bytes
+private fun hexToBytes(hex: String): ByteArray {
+    val cleanHex = hex.replace(" ", "").replace("-", "")
+    return cleanHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+}
 
     private fun updatePlayPauseIcon(isPlaying: Boolean) {
         btnPlayPause?.setImageResource(
