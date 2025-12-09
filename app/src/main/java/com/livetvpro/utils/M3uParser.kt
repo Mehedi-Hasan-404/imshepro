@@ -1,7 +1,6 @@
 package com.livetvpro.utils
 
 import org.json.JSONArray
-import org.json.JSONObject
 import timber.log.Timber
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -20,12 +19,13 @@ object M3uParser {
         val userAgent: String? = null,
         val httpHeaders: Map<String, String> = emptyMap(),
         val drmScheme: String? = null,
-        val drmLicenseKey: String? = null
+        val drmKeyId: String? = null,
+        val drmKey: String? = null
     )
 
     suspend fun parseM3uFromUrl(m3uUrl: String): List<M3uChannel> {
         return try {
-            Timber.d("🔥 FETCHING M3U FROM: $m3uUrl")
+            Timber.d("📥 FETCHING M3U FROM: $m3uUrl")
             
             val trimmedUrl = m3uUrl.trim()
             if (trimmedUrl.startsWith("[") || trimmedUrl.startsWith("{")) {
@@ -100,7 +100,6 @@ object M3uParser {
         val channels = mutableListOf<M3uChannel>()
         val lines = content.lines()
 
-        // ✅ FIX: Relaxed check. If it doesn't start with #EXTM3U, we still try to parse lines.
         if (lines.isEmpty()) return emptyList()
 
         var currentName = ""
@@ -109,7 +108,8 @@ object M3uParser {
         var currentUserAgent: String? = null
         var currentHeaders = mutableMapOf<String, String>()
         var currentDrmScheme: String? = null
-        var currentDrmLicenseKey: String? = null
+        var currentDrmKeyId: String? = null
+        var currentDrmKey: String? = null
 
         for (line in lines) {
             val trimmedLine = line.trim()
@@ -135,34 +135,19 @@ object M3uParser {
                     currentHeaders["Referer"] = trimmedLine.substringAfter("=").trim()
                 }
                 
-                trimmedLine.startsWith("#EXTHTTP:") -> {
-                    try {
-                        val jsonStr = trimmedLine.substringAfter("#EXTHTTP:").trim()
-                        val json = JSONObject(jsonStr)
-                        
-                        // Handle explicit cookie field
-                        if (json.has("cookie")) {
-                            currentHeaders["Cookie"] = json.getString("cookie")
-                        }
-                        
-                        // Handle other headers
-                        json.keys().forEach { key ->
-                            if (!key.equals("cookie", ignoreCase = true)) {
-                                currentHeaders[key] = json.getString(key)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Timber.w("Error parsing #EXTHTTP: ${e.message}")
-                    }
+                // ✅ FIX: Parse KODIPROP DRM info
+                trimmedLine.startsWith("#KODIPROP:inputstream.adaptive.license_type=") -> {
+                    currentDrmScheme = trimmedLine.substringAfter("=").trim()
+                    Timber.d("🔐 Found DRM Scheme: $currentDrmScheme")
                 }
                 
-                trimmedLine.startsWith("#KODIPROP:") -> {
-                    val prop = trimmedLine.substringAfter("#KODIPROP:").trim()
-                    when {
-                        prop.startsWith("inputstream.adaptive.license_type=") -> 
-                            currentDrmScheme = prop.substringAfter("=").trim()
-                        prop.startsWith("inputstream.adaptive.license_key=") -> 
-                            currentDrmLicenseKey = prop.substringAfter("=").trim()
+                trimmedLine.startsWith("#KODIPROP:inputstream.adaptive.license_key=") -> {
+                    val keyPair = trimmedLine.substringAfter("=").trim()
+                    val parts = keyPair.split(":")
+                    if (parts.size == 2) {
+                        currentDrmKeyId = parts[0].trim()
+                        currentDrmKey = parts[1].trim()
+                        Timber.d("🔑 Found DRM Keys: ${currentDrmKeyId?.take(8)}... : ${currentDrmKey?.take(8)}...")
                     }
                 }
                 
@@ -174,8 +159,10 @@ object M3uParser {
                         val finalHeaders = currentHeaders.toMutableMap()
                         finalHeaders.putAll(inlineHeaders)
                         
-                        val finalDrmScheme = inlineDrmInfo.first ?: currentDrmScheme
-                        val finalDrmKey = inlineDrmInfo.second ?: currentDrmLicenseKey
+                        // ✅ Use KODIPROP keys if available, otherwise inline
+                        val finalDrmScheme = currentDrmScheme ?: inlineDrmInfo.first
+                        val finalDrmKeyId = currentDrmKeyId ?: inlineDrmInfo.second
+                        val finalDrmKey = currentDrmKey ?: inlineDrmInfo.third
                         
                         channels.add(M3uChannel(
                             name = currentName,
@@ -185,8 +172,11 @@ object M3uParser {
                             userAgent = currentUserAgent,
                             httpHeaders = finalHeaders,
                             drmScheme = finalDrmScheme,
-                            drmLicenseKey = finalDrmKey
+                            drmKeyId = finalDrmKeyId,
+                            drmKey = finalDrmKey
                         ))
+                        
+                        Timber.d("✅ Parsed channel: $currentName | DRM: $finalDrmScheme | URL: ${streamUrl.take(50)}...")
                     }
                     
                     // Reset for next channel
@@ -196,7 +186,8 @@ object M3uParser {
                     currentUserAgent = null
                     currentHeaders = mutableMapOf()
                     currentDrmScheme = null
-                    currentDrmLicenseKey = null
+                    currentDrmKeyId = null
+                    currentDrmKey = null
                 }
             }
         }
@@ -213,23 +204,22 @@ object M3uParser {
     }
 
     private fun extractAttribute(line: String, attribute: String): String {
-        // Handle quoted attributes: attribute="value"
         val pattern = """$attribute="([^"]*)"""".toRegex()
         val match = pattern.find(line)
         if (match != null) return match.groupValues[1]
         
-        // Fallback for unquoted attributes (rare but possible)
         val unquotedPattern = """$attribute=([^ ]*)""".toRegex()
         val unquotedMatch = unquotedPattern.find(line)
         return unquotedMatch?.groupValues?.get(1) ?: ""
     }
 
-    private fun parseInlineHeadersAndDrm(urlLine: String): Triple<String, Map<String, String>, Pair<String?, String?>> {
+    private fun parseInlineHeadersAndDrm(urlLine: String): Triple<String, Map<String, String>, Triple<String?, String?, String?>> {
         val parts = urlLine.split("|")
         val url = parts[0].trim()
         val headers = mutableMapOf<String, String>()
         var drmScheme: String? = null
-        var drmLicense: String? = null
+        var drmKeyId: String? = null
+        var drmKey: String? = null
 
         if (parts.size > 1) {
             for (i in 1 until parts.size) {
@@ -241,7 +231,14 @@ object M3uParser {
                     
                     when (key.lowercase()) {
                         "drmscheme" -> drmScheme = value
-                        "drmlicense" -> drmLicense = value
+                        "drmlicense" -> {
+                            // Handle "keyId:key" format
+                            val keyParts = value.split(":")
+                            if (keyParts.size == 2) {
+                                drmKeyId = keyParts[0].trim()
+                                drmKey = keyParts[1].trim()
+                            }
+                        }
                         "user-agent", "useragent" -> headers["User-Agent"] = value
                         "referer", "referrer" -> headers["Referer"] = value
                         "cookie" -> headers["Cookie"] = value
@@ -250,7 +247,7 @@ object M3uParser {
                 }
             }
         }
-        return Triple(url, headers, Pair(drmScheme, drmLicense))
+        return Triple(url, headers, Triple(drmScheme, drmKeyId, drmKey))
     }
 
     private fun generateChannelId(streamUrl: String, name: String): String {
@@ -287,7 +284,12 @@ object M3uParser {
         m3u.userAgent?.let { parts.add("User-Agent=$it") }
         m3u.httpHeaders.forEach { (k, v) -> parts.add("$k=$v") }
         m3u.drmScheme?.let { parts.add("drmScheme=$it") }
-        m3u.drmLicenseKey?.let { parts.add("drmLicense=$it") }
+        
+        // ✅ FIX: Store both keyId and key
+        if (m3u.drmKeyId != null && m3u.drmKey != null) {
+            parts.add("drmLicense=${m3u.drmKeyId}:${m3u.drmKey}")
+        }
+        
         return parts.joinToString("|")
     }
 }
