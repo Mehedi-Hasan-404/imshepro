@@ -1,6 +1,5 @@
 package com.livetvpro.utils
 
-import com.livetvpro.data.models.Channel
 import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
@@ -9,6 +8,7 @@ import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import com.livetvpro.data.models.Channel
 
 object M3uParser {
 
@@ -27,32 +27,26 @@ object M3uParser {
         return try {
             Timber.d("🔥 FETCHING M3U FROM: $m3uUrl")
             
-            if (m3uUrl.trim().startsWith("[") || m3uUrl.trim().startsWith("{")) {
-                Timber.d("Detected JSON format playlist")
-                return parseJsonPlaylist(m3uUrl)
+            val trimmedUrl = m3uUrl.trim()
+            if (trimmedUrl.startsWith("[") || trimmedUrl.startsWith("{")) {
+                return parseJsonPlaylist(trimmedUrl)
             }
             
-            val url = URL(m3uUrl)
+            val url = URL(trimmedUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = 15000
             connection.readTimeout = 15000
             connection.setRequestProperty("User-Agent", "LiveTVPro/1.0")
 
-            Timber.d("Response Code: ${connection.responseCode}")
-            
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
                 val reader = BufferedReader(InputStreamReader(connection.inputStream))
                 val content = reader.readText()
                 reader.close()
                 connection.disconnect()
 
-                Timber.d("✅ Downloaded M3U, size: ${content.length} bytes")
-                Timber.d("First 200 chars: ${content.take(200)}")
-
                 val trimmedContent = content.trim()
                 if (trimmedContent.startsWith("[") || trimmedContent.startsWith("{")) {
-                    Timber.d("Response is JSON format")
                     return parseJsonPlaylist(trimmedContent)
                 }
 
@@ -62,21 +56,17 @@ object M3uParser {
                 emptyList()
             }
         } catch (e: Exception) {
-            Timber.e(e, "❌ Error parsing M3U from URL: $m3uUrl")
+            Timber.e(e, "❌ Error parsing M3U from URL")
             emptyList()
         }
     }
 
     fun parseJsonPlaylist(jsonContent: String): List<M3uChannel> {
         val channels = mutableListOf<M3uChannel>()
-        
         try {
             val jsonArray = JSONArray(jsonContent)
-            Timber.d("Parsing JSON playlist with ${jsonArray.length()} items")
-            
             for (i in 0 until jsonArray.length()) {
                 val item = jsonArray.getJSONObject(i)
-                
                 val name = item.optString("name", "Unknown Channel")
                 val link = item.optString("link", "")
                 val logo = item.optString("logo", "")
@@ -87,34 +77,22 @@ object M3uParser {
                 
                 if (link.isNotEmpty()) {
                     val headers = mutableMapOf<String, String>()
-                    
-                    if (cookie.isNotEmpty()) {
-                        headers["Cookie"] = cookie
-                    }
-                    
+                    if (cookie.isNotEmpty()) headers["Cookie"] = cookie
                     referer?.let { headers["Referer"] = it }
                     origin?.let { headers["Origin"] = it }
                     
-                    channels.add(
-                        M3uChannel(
-                            name = name,
-                            logoUrl = logo,
-                            streamUrl = link,
-                            groupTitle = "",
-                            userAgent = userAgent,
-                            httpHeaders = headers
-                        )
-                    )
-                    
-                    Timber.d("✅ Parsed JSON channel: $name")
+                    channels.add(M3uChannel(
+                        name = name,
+                        logoUrl = logo,
+                        streamUrl = link,
+                        userAgent = userAgent,
+                        httpHeaders = headers
+                    ))
                 }
             }
-            
-            Timber.d("✅ Parsed ${channels.size} channels from JSON playlist")
         } catch (e: Exception) {
             Timber.e(e, "❌ Error parsing JSON playlist")
         }
-        
         return channels
     }
 
@@ -122,13 +100,8 @@ object M3uParser {
         val channels = mutableListOf<M3uChannel>()
         val lines = content.lines()
 
-        Timber.d("🔍 Parsing M3U with ${lines.size} lines")
-
-        if (lines.isEmpty() || !lines[0].trim().startsWith("#EXTM3U")) {
-            Timber.e("❌ Invalid M3U file format - missing #EXTM3U header")
-            Timber.e("First line: ${lines.firstOrNull()}")
-            return emptyList()
-        }
+        // ✅ FIX: Relaxed check. If it doesn't start with #EXTM3U, we still try to parse lines.
+        if (lines.isEmpty()) return emptyList()
 
         var currentName = ""
         var currentLogo = ""
@@ -137,101 +110,74 @@ object M3uParser {
         var currentHeaders = mutableMapOf<String, String>()
         var currentDrmScheme: String? = null
         var currentDrmLicenseKey: String? = null
-        var lineNumber = 0
 
         for (line in lines) {
-            lineNumber++
             val trimmedLine = line.trim()
-            
-            if (trimmedLine.isEmpty() || trimmedLine.startsWith("#EXTM3U")) {
-                continue
-            }
+            if (trimmedLine.isEmpty()) continue
+            if (trimmedLine.startsWith("#EXTM3U")) continue
 
             when {
                 trimmedLine.startsWith("#EXTINF:") -> {
                     currentName = extractChannelName(trimmedLine)
                     currentLogo = extractAttribute(trimmedLine, "tvg-logo")
                     currentGroup = extractAttribute(trimmedLine, "group-title")
-                    Timber.d("Line $lineNumber: Found channel name: $currentName")
                 }
                 
                 trimmedLine.startsWith("#EXTVLCOPT:http-user-agent=") -> {
-                    currentUserAgent = trimmedLine.substringAfter("http-user-agent=").trim()
-                    Timber.d("Line $lineNumber: User-Agent: ${currentUserAgent?.take(50)}")
+                    currentUserAgent = trimmedLine.substringAfter("=").trim()
                 }
                 
                 trimmedLine.startsWith("#EXTVLCOPT:http-origin=") -> {
-                    val origin = trimmedLine.substringAfter("http-origin=").trim()
-                    currentHeaders["Origin"] = origin
-                    Timber.d("Line $lineNumber: Origin: $origin")
+                    currentHeaders["Origin"] = trimmedLine.substringAfter("=").trim()
                 }
                 
                 trimmedLine.startsWith("#EXTVLCOPT:http-referrer=") -> {
-                    val referrer = trimmedLine.substringAfter("http-referrer=").trim()
-                    currentHeaders["Referer"] = referrer
-                    Timber.d("Line $lineNumber: Referer: $referrer")
+                    currentHeaders["Referer"] = trimmedLine.substringAfter("=").trim()
                 }
                 
                 trimmedLine.startsWith("#EXTHTTP:") -> {
                     try {
                         val jsonStr = trimmedLine.substringAfter("#EXTHTTP:").trim()
-                        Timber.d("Line $lineNumber: Parsing #EXTHTTP JSON")
-                        
                         val json = JSONObject(jsonStr)
                         
+                        // Handle explicit cookie field
                         if (json.has("cookie")) {
-                            val cookieStr = json.getString("cookie")
-                            currentHeaders["Cookie"] = cookieStr
-                            Timber.d("Line $lineNumber: Cookie stored (${cookieStr.length} chars)")
+                            currentHeaders["Cookie"] = json.getString("cookie")
                         }
                         
+                        // Handle other headers
                         json.keys().forEach { key ->
-                            if (key != "cookie") {
-                                val value = json.getString(key)
-                                val headerName = key.split("-").joinToString("-") { 
-                                    it.replaceFirstChar { c -> c.uppercase() } 
-                                }
-                                currentHeaders[headerName] = value
+                            if (!key.equals("cookie", ignoreCase = true)) {
+                                currentHeaders[key] = json.getString(key)
                             }
                         }
                     } catch (e: Exception) {
-                        Timber.e(e, "Line $lineNumber: Error parsing #EXTHTTP")
+                        Timber.w("Error parsing #EXTHTTP: ${e.message}")
                     }
                 }
                 
                 trimmedLine.startsWith("#KODIPROP:") -> {
-                    try {
-                        val prop = trimmedLine.substringAfter("#KODIPROP:").trim()
-                        
-                        when {
-                            prop.startsWith("inputstream.adaptive.license_type=") -> {
-                                currentDrmScheme = prop.substringAfter("inputstream.adaptive.license_type=").trim()
-                                Timber.d("Line $lineNumber: 🔐 DRM Scheme: $currentDrmScheme")
-                            }
-                            prop.startsWith("inputstream.adaptive.license_key=") -> {
-                                currentDrmLicenseKey = prop.substringAfter("inputstream.adaptive.license_key=").trim()
-                                Timber.d("Line $lineNumber: 🔑 DRM Key: ${currentDrmLicenseKey?.take(40)}...")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Timber.w(e, "Line $lineNumber: Error parsing #KODIPROP")
+                    val prop = trimmedLine.substringAfter("#KODIPROP:").trim()
+                    when {
+                        prop.startsWith("inputstream.adaptive.license_type=") -> 
+                            currentDrmScheme = prop.substringAfter("=").trim()
+                        prop.startsWith("inputstream.adaptive.license_key=") -> 
+                            currentDrmLicenseKey = prop.substringAfter("=").trim()
                     }
                 }
                 
-                !trimmedLine.startsWith("#") && trimmedLine.isNotEmpty() -> {
+                !trimmedLine.startsWith("#") -> {
+                    // This is the URL line
                     if (currentName.isNotEmpty()) {
-                        Timber.d("Line $lineNumber: Stream URL found: ${trimmedLine.take(80)}...")
-                        
                         val (streamUrl, inlineHeaders, inlineDrmInfo) = parseInlineHeadersAndDrm(trimmedLine)
                         
-                        val finalHeaders = currentHeaders.toMutableMap().apply {
-                            putAll(inlineHeaders)
-                        }
+                        val finalHeaders = currentHeaders.toMutableMap()
+                        finalHeaders.putAll(inlineHeaders)
                         
                         val finalDrmScheme = inlineDrmInfo.first ?: currentDrmScheme
                         val finalDrmKey = inlineDrmInfo.second ?: currentDrmLicenseKey
                         
-                        val channel = M3uChannel(
+                        channels.add(M3uChannel(
                             name = currentName,
                             logoUrl = currentLogo,
                             streamUrl = streamUrl,
@@ -240,21 +186,10 @@ object M3uParser {
                             httpHeaders = finalHeaders,
                             drmScheme = finalDrmScheme,
                             drmLicenseKey = finalDrmKey
-                        )
-                        
-                        channels.add(channel)
-                        
-                        Timber.d("✅ CHANNEL ADDED:")
-                        Timber.d("   Name: $currentName")
-                        Timber.d("   Group: $currentGroup")
-                        Timber.d("   URL: ${streamUrl.take(80)}")
-                        Timber.d("   User-Agent: ${currentUserAgent ?: "none"}")
-                        Timber.d("   Headers: ${finalHeaders.keys.joinToString()}")
-                        Timber.d("   DRM: ${finalDrmScheme ?: "none"}")
-                    } else {
-                        Timber.w("Line $lineNumber: Stream URL without channel name: ${trimmedLine.take(50)}")
+                        ))
                     }
                     
+                    // Reset for next channel
                     currentName = ""
                     currentLogo = ""
                     currentGroup = ""
@@ -265,61 +200,57 @@ object M3uParser {
                 }
             }
         }
-
-        Timber.d("🎯 TOTAL PARSED: ${channels.size} channels")
         return channels
     }
 
     private fun extractChannelName(line: String): String {
-        val lastCommaIndex = line.lastIndexOf(',')
-        return if (lastCommaIndex != -1 && lastCommaIndex < line.length - 1) {
-            line.substring(lastCommaIndex + 1).trim()
+        val lastComma = line.lastIndexOf(',')
+        return if (lastComma != -1 && lastComma < line.length - 1) {
+            line.substring(lastComma + 1).trim()
         } else {
             "Unknown Channel"
         }
     }
 
-    private fun extractAttribute(line: String, attributeName: String): String {
-        val pattern = """$attributeName="([^"]*)"""".toRegex()
+    private fun extractAttribute(line: String, attribute: String): String {
+        // Handle quoted attributes: attribute="value"
+        val pattern = """$attribute="([^"]*)"""".toRegex()
         val match = pattern.find(line)
-        return match?.groupValues?.getOrNull(1) ?: ""
+        if (match != null) return match.groupValues[1]
+        
+        // Fallback for unquoted attributes (rare but possible)
+        val unquotedPattern = """$attribute=([^ ]*)""".toRegex()
+        val unquotedMatch = unquotedPattern.find(line)
+        return unquotedMatch?.groupValues?.get(1) ?: ""
     }
 
     private fun parseInlineHeadersAndDrm(urlLine: String): Triple<String, Map<String, String>, Pair<String?, String?>> {
         val parts = urlLine.split("|")
-        
-        if (parts.size == 1) {
-            return Triple(urlLine, emptyMap(), Pair(null, null))
-        }
-        
-        val streamUrl = parts[0].trim()
+        val url = parts[0].trim()
         val headers = mutableMapOf<String, String>()
         var drmScheme: String? = null
         var drmLicense: String? = null
-        
-        Timber.d("   Parsing inline metadata (${parts.size - 1} parts)")
-        
-        for (i in 1 until parts.size) {
-            val part = parts[i].trim()
-            val separatorIndex = part.indexOf('=')
-            
-            if (separatorIndex > 0) {
-                val key = part.substring(0, separatorIndex).trim()
-                val value = part.substring(separatorIndex + 1).trim()
-                
-                when (key.lowercase()) {
-                    "referer", "referrer" -> headers["Referer"] = value
-                    "user-agent", "useragent" -> headers["User-Agent"] = value
-                    "origin" -> headers["Origin"] = value
-                    "cookie" -> headers["Cookie"] = value
-                    "drmscheme" -> drmScheme = value.lowercase()
-                    "drmlicense" -> drmLicense = value
-                    else -> headers[key] = value
+
+        if (parts.size > 1) {
+            for (i in 1 until parts.size) {
+                val part = parts[i]
+                val eqIndex = part.indexOf('=')
+                if (eqIndex != -1) {
+                    val key = part.substring(0, eqIndex).trim()
+                    val value = part.substring(eqIndex + 1).trim()
+                    
+                    when (key.lowercase()) {
+                        "drmscheme" -> drmScheme = value
+                        "drmlicense" -> drmLicense = value
+                        "user-agent", "useragent" -> headers["User-Agent"] = value
+                        "referer", "referrer" -> headers["Referer"] = value
+                        "cookie" -> headers["Cookie"] = value
+                        else -> headers[key] = value
+                    }
                 }
             }
         }
-        
-        return Triple(streamUrl, headers, Pair(drmScheme, drmLicense))
+        return Triple(url, headers, Pair(drmScheme, drmLicense))
     }
 
     private fun generateChannelId(streamUrl: String, name: String): String {
@@ -329,7 +260,7 @@ object M3uParser {
             val digest = md.digest(combined.toByteArray())
             digest.joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
-            "m3u_${combined.hashCode().toString(16)}"
+            "m3u_${combined.hashCode()}"
         }
     }
 
@@ -338,43 +269,25 @@ object M3uParser {
         categoryId: String,
         categoryName: String
     ): List<Channel> {
-        Timber.d("🔄 Converting ${m3uChannels.size} M3U channels to Channel objects")
-        
-        return m3uChannels.map { m3uChannel ->
-            val streamUrlWithMetadata = buildStreamUrlWithMetadata(m3uChannel)
-            
+        return m3uChannels.map { m3u ->
+            val metaUrl = buildStreamUrlWithMetadata(m3u)
             Channel(
-                id = generateChannelId(m3uChannel.streamUrl, m3uChannel.name),
-                name = m3uChannel.name,
-                logoUrl = m3uChannel.logoUrl.ifEmpty { 
-                    "https://via.placeholder.com/150?text=${m3uChannel.name.take(2)}" 
-                },
-                streamUrl = streamUrlWithMetadata,
+                id = generateChannelId(m3u.streamUrl, m3u.name),
+                name = m3u.name,
+                logoUrl = m3u.logoUrl,
+                streamUrl = metaUrl,
                 categoryId = categoryId,
                 categoryName = categoryName
             )
         }
     }
 
-    private fun buildStreamUrlWithMetadata(m3uChannel: M3uChannel): String {
-        val parts = mutableListOf(m3uChannel.streamUrl)
-        
-        m3uChannel.userAgent?.let {
-            parts.add("User-Agent=$it")
-        }
-        
-        m3uChannel.httpHeaders.forEach { (key, value) ->
-            parts.add("$key=$value")
-        }
-        
-        m3uChannel.drmScheme?.let { scheme ->
-            parts.add("drmScheme=$scheme")
-        }
-        
-        m3uChannel.drmLicenseKey?.let { license ->
-            parts.add("drmLicense=$license")
-        }
-        
+    private fun buildStreamUrlWithMetadata(m3u: M3uChannel): String {
+        val parts = mutableListOf(m3u.streamUrl)
+        m3u.userAgent?.let { parts.add("User-Agent=$it") }
+        m3u.httpHeaders.forEach { (k, v) -> parts.add("$k=$v") }
+        m3u.drmScheme?.let { parts.add("drmScheme=$it") }
+        m3u.drmLicenseKey?.let { parts.add("drmLicense=$it") }
         return parts.joinToString("|")
     }
 }
