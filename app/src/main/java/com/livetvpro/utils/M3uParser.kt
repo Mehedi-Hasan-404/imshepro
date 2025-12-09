@@ -154,27 +154,56 @@ object M3uParser {
                     Timber.d("Parsed referrer: $referrer")
                 }
                 
-                // ✅ NEW: Parse #EXTHTTP with JSON cookies
+                // ✅ Parse #EXTHTTP with JSON cookies/headers
                 line.startsWith("#EXTHTTP:") -> {
                     try {
                         val jsonStr = line.substringAfter("#EXTHTTP:").trim()
+                        Timber.d("📋 Parsing #EXTHTTP: ${jsonStr.take(100)}...")
+                        
                         val json = JSONObject(jsonStr)
                         
+                        // Parse cookie
                         if (json.has("cookie")) {
                             val cookieStr = json.getString("cookie")
-                            parseCookieString(cookieStr, currentCookies)
-                            Timber.d("✅ Parsed cookie from #EXTHTTP: ${cookieStr.take(80)}...")
+                            // Store as Cookie header directly (don't parse into separate cookies)
+                            currentHeaders["Cookie"] = cookieStr
+                            Timber.d("✅ Stored Cookie header: ${cookieStr.take(80)}...")
                         }
                         
-                        // Parse other headers from JSON
+                        // Parse other headers from JSON (except cookie)
                         json.keys().forEach { key ->
                             if (key != "cookie") {
-                                currentHeaders[key] = json.getString(key)
-                                Timber.d("✅ Parsed header from #EXTHTTP: $key")
+                                val value = json.getString(key)
+                                // Capitalize first letter of header name
+                                val headerName = key.split("-").joinToString("-") { 
+                                    it.replaceFirstChar { c -> c.uppercase() } 
+                                }
+                                currentHeaders[headerName] = value
+                                Timber.d("✅ Stored header: $headerName = ${value.take(50)}...")
                             }
                         }
                     } catch (e: Exception) {
                         Timber.e(e, "❌ Error parsing #EXTHTTP line: $line")
+                        Timber.e("   Raw line: $line")
+                    }
+                }
+                
+                // ✅ Parse #KODIPROP directives (for DRM keys)
+                line.startsWith("#KODIPROP:") -> {
+                    try {
+                        val prop = line.substringAfter("#KODIPROP:").trim()
+                        if (prop.startsWith("inputstream.adaptive.license_key=")) {
+                            val licenseKey = prop.substringAfter("inputstream.adaptive.license_key=").trim()
+                            // Store DRM info in headers for later processing
+                            currentHeaders["DRM-License-Key"] = licenseKey
+                            Timber.d("✅ Stored DRM license key: ${licenseKey.take(50)}...")
+                        } else if (prop.startsWith("inputstream.adaptive.license_type=")) {
+                            val licenseType = prop.substringAfter("inputstream.adaptive.license_type=").trim()
+                            currentHeaders["DRM-License-Type"] = licenseType
+                            Timber.d("✅ Stored DRM license type: $licenseType")
+                        }
+                    } catch (e: Exception) {
+                        Timber.w(e, "⚠️ Error parsing #KODIPROP: $line")
                     }
                 }
                 
@@ -186,6 +215,18 @@ object M3uParser {
                             putAll(inlineHeaders)
                         }
                         
+                        // ✅ IMPORTANT: If Cookie is in headers, don't duplicate it in cookies map
+                        val cookieHeader = finalHeaders["Cookie"]
+                        val finalCookies = if (cookieHeader != null) {
+                            // Cookie already in headers, don't duplicate
+                            emptyMap()
+                        } else if (currentCookies.isNotEmpty()) {
+                            // Use parsed cookies
+                            currentCookies.toMap()
+                        } else {
+                            emptyMap()
+                        }
+                        
                         channels.add(
                             M3uChannel(
                                 name = currentName,
@@ -193,12 +234,21 @@ object M3uParser {
                                 streamUrl = streamUrl,
                                 groupTitle = currentGroup,
                                 userAgent = currentUserAgent,
-                                cookies = currentCookies.toMap(),
+                                cookies = finalCookies,
                                 httpHeaders = finalHeaders
                             )
                         )
                         
-                        Timber.d("✅ Added channel: $currentName with ${currentCookies.size} cookies, ${finalHeaders.size} headers")
+                        Timber.d("✅ Added channel: $currentName")
+                        if (cookieHeader != null) {
+                            Timber.d("   📋 Cookie header: ${cookieHeader.take(80)}...")
+                        }
+                        if (finalCookies.isNotEmpty()) {
+                            Timber.d("   🍪 Cookies: ${finalCookies.size}")
+                        }
+                        if (finalHeaders.isNotEmpty()) {
+                            Timber.d("   📡 Headers: ${finalHeaders.keys.joinToString()}")
+                        }
                     }
                     
                     currentName = ""
@@ -261,7 +311,7 @@ object M3uParser {
                     "referer", "referrer" -> headers["Referer"] = headerValue
                     "user-agent", "useragent" -> headers["User-Agent"] = headerValue
                     "origin" -> headers["Origin"] = headerValue
-                    "cookie" -> parseCookieString(headerValue, headers)
+                    "cookie" -> headers["Cookie"] = headerValue
                     else -> headers[headerName] = headerValue
                 }
             }
@@ -310,9 +360,20 @@ object M3uParser {
         }
         
         m3uChannel.httpHeaders.forEach { (key, value) ->
-            parts.add("$key=$value")
+            // Format header properly (use proper case)
+            val headerKey = when (key.lowercase()) {
+                "referer", "referrer" -> "Referer"
+                "user-agent", "useragent" -> "User-Agent"
+                "origin" -> "Origin"
+                "cookie" -> "Cookie"
+                "drm-license-key" -> "drmLicense"
+                "drm-license-type" -> "drmScheme"
+                else -> key
+            }
+            parts.add("$headerKey=$value")
         }
         
+        // ✅ Add cookies as a single Cookie header (not multiple headers)
         if (m3uChannel.cookies.isNotEmpty()) {
             val cookieStr = m3uChannel.cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
             parts.add("Cookie=$cookieStr")
