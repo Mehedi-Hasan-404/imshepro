@@ -2,6 +2,7 @@ package com.livetvpro
 
 import android.os.Bundle
 import android.view.MenuItem
+import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     
     private var drawerToggle: ActionBarDrawerToggle? = null
     private var currentSearchQuery: String = ""
+    private var isSearchVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Update toolbar title and handle back button vs hamburger menu
+            // ✅ FIXED: Update hamburger/back button based on destination
             navController.addOnDestinationChangedListener { _, destination, _ ->
                 val title = when (destination.id) {
                     R.id.homeFragment -> "Categories"
@@ -158,29 +160,35 @@ class MainActivity : AppCompatActivity() {
                 }
                 binding.toolbarTitle.text = title
                 
-                // Show/hide hamburger menu vs back button with animation
+                // Check if current destination is top-level
                 val isTopLevel = destination.id in topLevelDestinations
                 
+                // ✅ CRITICAL FIX: Properly sync drawer toggle state
                 if (isTopLevel) {
                     // Show hamburger menu (drawer indicator)
                     drawerToggle?.isDrawerIndicatorEnabled = true
-                    supportActionBar?.setDisplayHomeAsUpEnabled(true)
                     drawerToggle?.syncState()
                     
-                    // Lock drawer (enable swipe to open)
-                    binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED)
+                    // Enable drawer swipe
+                    binding.drawerLayout.setDrawerLockMode(
+                        androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_UNLOCKED
+                    )
+                    
+                    // Remove custom navigation click listener
+                    binding.toolbar.setNavigationOnClickListener(null)
                 } else {
                     // Show back arrow
                     drawerToggle?.isDrawerIndicatorEnabled = false
                     supportActionBar?.setDisplayHomeAsUpEnabled(true)
-                    supportActionBar?.setHomeAsUpIndicator(R.drawable.ic_arrow_back)
                     
-                    // Lock drawer (disable swipe to open on sub-screens)
-                    binding.drawerLayout.setDrawerLockMode(androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
+                    // Disable drawer swipe
+                    binding.drawerLayout.setDrawerLockMode(
+                        androidx.drawerlayout.widget.DrawerLayout.LOCK_MODE_LOCKED_CLOSED
+                    )
                     
-                    // Set toolbar navigation click listener for back button
+                    // ✅ Set custom back navigation
                     binding.toolbar.setNavigationOnClickListener {
-                        navController.navigateUp()
+                        onBackPressedDispatcher.onBackPressed()
                     }
                 }
                 
@@ -192,6 +200,11 @@ class MainActivity : AppCompatActivity() {
                 // Close drawer after navigation
                 if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
                     binding.drawerLayout.closeDrawer(GravityCompat.START)
+                }
+                
+                // Hide search when navigating
+                if (isSearchVisible) {
+                    hideSearch()
                 }
             }
 
@@ -219,6 +232,8 @@ class MainActivity : AppCompatActivity() {
                 R.string.navigation_drawer_close
             ).apply {
                 isDrawerIndicatorEnabled = true
+                // ✅ Enable animated icon transformation
+                isDrawerSlideAnimationEnabled = true
                 syncState()
             }
             
@@ -235,25 +250,91 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSearch() {
         try {
+            // ✅ Initially hide search view
+            binding.searchView.visibility = View.GONE
+            
+            // Search icon click - show search bar
+            binding.btnSearch.setOnClickListener {
+                showSearch()
+            }
+            
+            // Search view listeners
             binding.searchView.setOnQueryTextListener(object : androidx.appcompat.widget.SearchView.OnQueryTextListener {
                 override fun onQueryTextSubmit(query: String?): Boolean {
                     currentSearchQuery = query ?: ""
+                    // TODO: Implement search in current fragment
                     return true
                 }
 
                 override fun onQueryTextChange(newText: String?): Boolean {
                     currentSearchQuery = newText ?: ""
+                    // TODO: Implement live search in current fragment
                     return true
                 }
             })
+            
+            // Back button in search mode
+            binding.btnSearchBack.setOnClickListener {
+                hideSearch()
+            }
+            
+            // Clear search text
+            binding.btnSearchClear.setOnClickListener {
+                binding.searchView.setQuery("", false)
+                currentSearchQuery = ""
+            }
+            
             Timber.d("Search setup complete")
         } catch (e: Exception) {
             Timber.e(e, "Error setting up search")
         }
     }
 
+    private fun showSearch() {
+        isSearchVisible = true
+        
+        // Hide normal toolbar items
+        binding.toolbarTitle.visibility = View.GONE
+        binding.btnSearch.visibility = View.GONE
+        binding.btnFavorites.visibility = View.GONE
+        
+        // Show search components
+        binding.searchView.visibility = View.VISIBLE
+        binding.btnSearchBack.visibility = View.VISIBLE
+        binding.btnSearchClear.visibility = View.VISIBLE
+        
+        // Focus and open keyboard
+        binding.searchView.isIconified = false
+        binding.searchView.requestFocus()
+        
+        Timber.d("Search mode activated")
+    }
+
+    private fun hideSearch() {
+        isSearchVisible = false
+        
+        // Show normal toolbar items
+        binding.toolbarTitle.visibility = View.VISIBLE
+        binding.btnSearch.visibility = View.VISIBLE
+        binding.btnFavorites.visibility = View.VISIBLE
+        
+        // Hide search components
+        binding.searchView.visibility = View.GONE
+        binding.btnSearchBack.visibility = View.GONE
+        binding.btnSearchClear.visibility = View.GONE
+        
+        // Clear search
+        binding.searchView.setQuery("", false)
+        currentSearchQuery = ""
+        
+        // Close keyboard
+        binding.searchView.clearFocus()
+        
+        Timber.d("Search mode deactivated")
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        // Let drawer toggle handle it if enabled
+        // ✅ FIXED: Let drawer toggle handle home button only if drawer is enabled
         if (drawerToggle?.isDrawerIndicatorEnabled == true) {
             if (drawerToggle?.onOptionsItemSelected(item) == true) {
                 return true
@@ -271,10 +352,19 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            binding.drawerLayout.closeDrawer(GravityCompat.START)
-        } else {
-            super.onBackPressed()
+        when {
+            // If search is visible, hide it first
+            isSearchVisible -> {
+                hideSearch()
+            }
+            // If drawer is open, close it
+            binding.drawerLayout.isDrawerOpen(GravityCompat.START) -> {
+                binding.drawerLayout.closeDrawer(GravityCompat.START)
+            }
+            // Otherwise, handle normal back
+            else -> {
+                super.onBackPressed()
+            }
         }
     }
 
