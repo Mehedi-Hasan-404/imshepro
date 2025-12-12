@@ -14,7 +14,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.util.Rational
 import android.view.View
 import android.view.WindowManager
@@ -32,8 +31,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.drm.DefaultDrmSessionManager
+import androidx.media3.exoplayer.drm.ExoMediaDrm
 import androidx.media3.exoplayer.drm.FrameworkMediaDrm
-import androidx.media3.exoplayer.drm.HttpMediaDrmCallback
+import androidx.media3.exoplayer.drm.MediaDrmCallback
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -137,7 +137,12 @@ class ChannelPlayerActivity : AppCompatActivity() {
 
         // Register PiP control receiver
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            registerReceiver(pipReceiver, IntentFilter(ACTION_MEDIA_CONTROL), RECEIVER_NOT_EXPORTED)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(pipReceiver, IntentFilter(ACTION_MEDIA_CONTROL), RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(pipReceiver, IntentFilter(ACTION_MEDIA_CONTROL))
+            }
         }
 
         // Get current orientation and apply initial settings
@@ -175,9 +180,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
         applyOrientationSettings(isLandscape)
     }
 
-    /**
-     * Unified method to apply all orientation-based settings
-     */
     private fun applyOrientationSettings(isLandscape: Boolean) {
         setWindowFlags(isLandscape)
         adjustLayoutForOrientation(isLandscape)
@@ -215,9 +217,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
         binding.playerContainer.layoutParams = params
     }
 
-    /**
-     * Properly manage system UI visibility and cutout mode
-     */
     private fun setWindowFlags(isLandscape: Boolean) {
         if (isLandscape) {
             @Suppress("DEPRECATION")
@@ -273,7 +272,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         Timber.d("onStop() called - isInPipMode: $isInPipMode, isFinishing: $isFinishing")
-        // ALWAYS release player when activity stops
         releasePlayer()
     }
 
@@ -302,9 +300,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
         player = null
     }
 
-    /**
-     * Data class to hold parsed stream information including DRM details
-     */
     private data class StreamInfo(
         val url: String,
         val headers: Map<String, String>,
@@ -313,10 +308,6 @@ class ChannelPlayerActivity : AppCompatActivity() {
         val drmKey: String?
     )
 
-    /**
-     * Parse stream URL for DRM info and inline headers
-     * Format: url|drmScheme=clearkey|drmLicense=keyId:key|Referer=...|Cookie=...
-     */
     private fun parseStreamUrl(streamUrl: String): StreamInfo {
         val parts = streamUrl.split("|")
         val url = parts[0].trim()
@@ -337,15 +328,14 @@ class ChannelPlayerActivity : AppCompatActivity() {
             when (key.lowercase()) {
                 "drmscheme" -> {
                     drmScheme = value.lowercase()
-                    Timber.d("🔌 DRM Scheme: $drmScheme")
+                    Timber.d("DRM Scheme: $drmScheme")
                 }
                 "drmlicense" -> {
-                    // Handle "keyId:key" format
                     val keyParts = value.split(":")
                     if (keyParts.size == 2) {
                         drmKeyId = keyParts[0].trim()
                         drmKey = keyParts[1].trim()
-                        Timber.d("🔑 DRM KeyID: ${drmKeyId?.take(8)}...")
+                        Timber.d("DRM KeyID found")
                     }
                 }
                 "referer", "referrer" -> headers["Referer"] = value
@@ -353,7 +343,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                 "origin" -> headers["Origin"] = value
                 "cookie" -> {
                     headers["Cookie"] = value
-                    Timber.d("🍪 Cookie found")
+                    Timber.d("Cookie found")
                 }
                 else -> headers[key] = value
             }
@@ -369,11 +359,9 @@ class ChannelPlayerActivity : AppCompatActivity() {
         try {
             val streamInfo = parseStreamUrl(channel.streamUrl)
             
-            Timber.d("╔═══════════════════════════════════════╗")
-            Timber.d("🎬 Setting up player for: ${channel.name}")
-            Timber.d("📺 URL: ${streamInfo.url}")
-            Timber.d("🔒 DRM: ${streamInfo.drmScheme ?: "None"}")
-            Timber.d("╚═══════════════════════════════════════╝")
+            Timber.d("Setting up player for: ${channel.name}")
+            Timber.d("URL: ${streamInfo.url}")
+            Timber.d("DRM: ${streamInfo.drmScheme ?: "None"}")
 
             val headers = streamInfo.headers.toMutableMap()
             if (!headers.containsKey("User-Agent")) {
@@ -392,22 +380,21 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                          streamInfo.drmKeyId != null && 
                                          streamInfo.drmKey != null) {
                 
-                Timber.d("🔐 Setting up DRM protection...")
+                Timber.d("Setting up DRM protection...")
                 
-                // Create DRM Session Manager based on scheme
                 val drmSessionManager = if (streamInfo.drmScheme.equals("clearkey", ignoreCase = true)) {
-                     createClearKeyDrmManager(
+                    createClearKeyDrmManager(
                         streamInfo.drmKeyId,
                         streamInfo.drmKey,
                         dataSourceFactory
                     )
                 } else {
-                    Timber.e("❌ Unsupported DRM scheme: ${streamInfo.drmScheme}")
+                    Timber.e("Unsupported DRM scheme: ${streamInfo.drmScheme}")
                     null
                 }
                 
                 if (drmSessionManager != null) {
-                    Timber.d("✅ DRM manager created successfully")
+                    Timber.d("DRM manager created successfully")
                     DefaultMediaSourceFactory(this)
                         .setDataSourceFactory(dataSourceFactory)
                         .setDrmSessionManagerProvider { drmSessionManager }
@@ -416,7 +403,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         .setDataSourceFactory(dataSourceFactory)
                 }
             } else {
-                Timber.d("🔓 No DRM - regular stream")
+                Timber.d("No DRM - regular stream")
                 DefaultMediaSourceFactory(this)
                     .setDataSourceFactory(dataSourceFactory)
             }
@@ -446,25 +433,25 @@ class ChannelPlayerActivity : AppCompatActivity() {
                                     updatePlayPauseIcon(exo.playWhenReady)
                                     binding.progressBar.visibility = View.GONE
                                     updatePipParams()
-                                    Timber.d("✅ Player ready - PLAYING!")
+                                    Timber.d("Player ready - PLAYING!")
                                 }
                                 Player.STATE_BUFFERING -> {
                                     binding.progressBar.visibility = View.VISIBLE
-                                    Timber.d("⏳ Buffering...")
+                                    Timber.d("Buffering...")
                                 }
                                 Player.STATE_ENDED -> {
                                     binding.progressBar.visibility = View.GONE
-                                    Timber.d("⏹️ Playback ended")
+                                    Timber.d("Playback ended")
                                 }
                                 Player.STATE_IDLE -> {
-                                    Timber.d("💤 Player idle")
+                                    Timber.d("Player idle")
                                 }
                             }
                         }
                         
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
                             updatePlayPauseIcon(isPlaying)
-                            Timber.d("▶️ Is playing: $isPlaying")
+                            Timber.d("Is playing: $isPlaying")
                             if (isInPipMode) {
                                 updatePipParams()
                             }
@@ -472,7 +459,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         
                         override fun onVideoSizeChanged(videoSize: VideoSize) {
                             super.onVideoSizeChanged(videoSize)
-                            Timber.d("📐 Video size: ${videoSize.width}x${videoSize.height}")
+                            Timber.d("Video size: ${videoSize.width}x${videoSize.height}")
                             if (isInPipMode) {
                                 updatePipParams()
                             }
@@ -480,7 +467,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                         
                         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                             super.onPlayerError(error)
-                            Timber.e(error, "❌ PLAYBACK ERROR")
+                            Timber.e(error, "PLAYBACK ERROR")
                             Timber.e("Stream URL: ${streamInfo.url}")
                             binding.progressBar.visibility = View.GONE
                             
@@ -501,7 +488,7 @@ class ChannelPlayerActivity : AppCompatActivity() {
                     })
                 }
         } catch (e: Exception) {
-            Timber.e(e, "❌ Error creating ExoPlayer")
+            Timber.e(e, "Error creating ExoPlayer")
             Toast.makeText(this, "Failed to initialize player", Toast.LENGTH_SHORT).show()
         }
         
@@ -513,89 +500,76 @@ class ChannelPlayerActivity : AppCompatActivity() {
         }
     }
 
-    // ✅ FIXED createClearKeyDrmManager() method
-// Replace the existing method in ChannelPlayerActivity.kt
+    private fun createClearKeyDrmManager(
+        keyIdHex: String,
+        keyHex: String,
+        dataSourceFactory: DefaultHttpDataSource.Factory
+    ): DefaultDrmSessionManager? {
+        return try {
+            val clearKeyUuid = UUID.fromString("e2719d58-a985-b3c9-781a-b030af78d30e")
+            
+            Timber.d("Creating ClearKey DRM manager")
+            
+            val drmCallback = object : MediaDrmCallback {
+                override fun executeProvisionRequest(
+                    uuid: UUID,
+                    request: ExoMediaDrm.ProvisionRequest
+                ): ByteArray {
+                    return ByteArray(0)
+                }
 
-private fun createClearKeyDrmManager(
-    keyIdHex: String,
-    keyHex: String,
-    dataSourceFactory: DefaultHttpDataSource.Factory
-): DefaultDrmSessionManager? {
-    return try {
-        // ClearKey UUID (defined in MPEG-CENC spec)
-        val clearKeyUuid = UUID.fromString("e2719d58-a985-b3c9-781a-b030af78d30e")
-        
-        Timber.d("🔐 Creating ClearKey DRM manager")
-        Timber.d("🔑 KeyID: ${keyIdHex.take(8)}...")
-        Timber.d("🔑 Key: ${keyHex.take(8)}...")
-        
-        // ✅ FIX 1: Create proper LocalMediaDrmCallback with keys
-        val drmCallback = object : androidx.media3.exoplayer.drm.MediaDrmCallback {
-            override fun executeProvisionRequest(
-                uuid: UUID,
-                request: androidx.media3.exoplayer.drm.ExoMediaDrm.ProvisionRequest
-            ): ByteArray {
-                // Not needed for ClearKey
-                return ByteArray(0)
-            }
-
-            override fun executeKeyRequest(
-                uuid: UUID,
-                request: androidx.media3.exoplayer.drm.ExoMediaDrm.KeyRequest
-            ): ByteArray {
-                // ✅ FIX 2: Build proper ClearKey response
-                val keyIdBytes = hexToBytes(keyIdHex)
-                val keyBytes = hexToBytes(keyHex)
-                
-                // Base64url encode (no padding, URL-safe)
-                val keyIdBase64 = android.util.Base64.encodeToString(
-                    keyIdBytes,
-                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                )
-                val keyBase64 = android.util.Base64.encodeToString(
-                    keyBytes,
-                    android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
-                )
-                
-                // Build JWK response
-                val jwkResponse = """
-                    {
-                      "keys": [
+                override fun executeKeyRequest(
+                    uuid: UUID,
+                    request: ExoMediaDrm.KeyRequest
+                ): ByteArray {
+                    val keyIdBytes = hexToBytes(keyIdHex)
+                    val keyBytes = hexToBytes(keyHex)
+                    
+                    val keyIdBase64 = android.util.Base64.encodeToString(
+                        keyIdBytes,
+                        android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                    )
+                    val keyBase64 = android.util.Base64.encodeToString(
+                        keyBytes,
+                        android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP
+                    )
+                    
+                    val jwkResponse = """
                         {
-                          "kty": "oct",
-                          "k": "$keyBase64",
-                          "kid": "$keyIdBase64"
+                          "keys": [
+                            {
+                              "kty": "oct",
+                              "k": "$keyBase64",
+                              "kid": "$keyIdBase64"
+                            }
+                          ]
                         }
-                      ]
-                    }
-                """.trimIndent()
-                
-                Timber.d("🔐 Generated JWK response for ClearKey")
-                return jwkResponse.toByteArray()
+                    """.trimIndent()
+                    
+                    Timber.d("Generated JWK response for ClearKey")
+                    return jwkResponse.toByteArray()
+                }
             }
+            
+            DefaultDrmSessionManager.Builder()
+                .setUuidAndExoMediaDrmProvider(
+                    clearKeyUuid,
+                    FrameworkMediaDrm.DEFAULT_PROVIDER
+                )
+                .setMultiSession(false)
+                .build(drmCallback).also {
+                    Timber.d("ClearKey DRM manager created successfully")
+                }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to create ClearKey DRM manager")
+            null
         }
-        
-        // ✅ FIX 3: Create DRM session manager
-        DefaultDrmSessionManager.Builder()
-            .setUuidAndExoMediaDrmProvider(
-                clearKeyUuid,
-                androidx.media3.exoplayer.drm.FrameworkMediaDrm.DEFAULT_PROVIDER
-            )
-            .setMultiSession(false)
-            .build(drmCallback).also {
-                Timber.d("✅ ClearKey DRM manager created successfully")
-            }
-    } catch (e: Exception) {
-        Timber.e(e, "❌ Failed to create ClearKey DRM manager")
-        null
     }
-}
 
-// ✅ HELPER: Convert hex string to bytes
-private fun hexToBytes(hex: String): ByteArray {
-    val cleanHex = hex.replace(" ", "").replace("-", "")
-    return cleanHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-}
+    private fun hexToBytes(hex: String): ByteArray {
+        val cleanHex = hex.replace(" ", "").replace("-", "")
+        return cleanHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
 
     private fun updatePlayPauseIcon(isPlaying: Boolean) {
         btnPlayPause?.setImageResource(
@@ -753,7 +727,6 @@ private fun hexToBytes(hex: String): ByteArray {
         binding.lockOverlay.visibility = View.GONE
         binding.unlockButton.visibility = View.GONE
         
-        // Setup retry button
         binding.retryButton.setOnClickListener {
             binding.errorView.visibility = View.GONE
             binding.progressBar.visibility = View.VISIBLE
@@ -783,7 +756,7 @@ private fun hexToBytes(hex: String): ByteArray {
         
         viewModel.relatedChannels.removeObservers(this)
         viewModel.relatedChannels.observe(this) { channels ->
-            Timber.d("✅ Received ${channels.size} related channels")
+            Timber.d("Received ${channels.size} related channels")
             
             binding.relatedCount.text = channels.size.toString()
             relatedChannelsAdapter.submitList(channels)
@@ -796,7 +769,8 @@ private fun hexToBytes(hex: String): ByteArray {
                 Timber.d("Showing ${channels.size} related channels in 3-column grid")
             }
         }
-    }
+
+        // Continuation of ChannelPlayerActivity.kt
 
     private fun switchChannel(newChannel: Channel) {
         Timber.d("Switching to channel: ${newChannel.name}")
@@ -850,8 +824,6 @@ private fun hexToBytes(hex: String): ByteArray {
         }
     }
 
-    // ========== PIP LOGIC ==========
-
     private fun enterPipMode() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             Toast.makeText(this, "PiP not supported", Toast.LENGTH_SHORT).show()
@@ -892,7 +864,6 @@ private fun hexToBytes(hex: String): ByteArray {
                 val builder = PictureInPictureParams.Builder()
                 builder.setAspectRatio(ratio)
                 
-                // ONLY Play/Pause control (system provides close button)
                 val actions = ArrayList<RemoteAction>()
                 val isPlaying = player?.isPlaying == true
                 
@@ -953,7 +924,6 @@ private fun hexToBytes(hex: String): ByteArray {
         isInPipMode = isInPictureInPictureMode
         
         if (isInPipMode) {
-            // Entering PiP
             binding.relatedChannelsSection.visibility = View.GONE
             binding.playerView.useController = false 
             binding.lockOverlay.visibility = View.GONE
@@ -963,16 +933,13 @@ private fun hexToBytes(hex: String): ByteArray {
             
             Timber.d("Entered PiP mode")
         } else {
-            // Exiting PiP
             userRequestedPip = false
             
-            // Check if activity is finishing (user closed PiP from system)
             if (isFinishing) {
                 Timber.d("Activity is finishing - PiP was closed by user via system gesture/button")
                 return
             }
             
-            // Otherwise, user tapped to restore from PiP - restore normal UI
             Timber.d("Exiting PiP - restoring UI")
             val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
             applyOrientationSettings(isLandscape)
@@ -995,7 +962,6 @@ private fun hexToBytes(hex: String): ByteArray {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        // Auto-enter PiP when user presses home/recent apps (if playing)
         if (!isInPipMode && player?.isPlaying == true) {
             Timber.d("User leaving app - auto-entering PiP")
             userRequestedPip = true
