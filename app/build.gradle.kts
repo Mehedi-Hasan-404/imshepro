@@ -86,14 +86,12 @@ dependencies {
     implementation("androidx.navigation:navigation-fragment-ktx:2.7.7")
     implementation("androidx.navigation:navigation-ui-ktx:2.7.7")
 
-    // ✅ ExoPlayer (Media3) - Using version 1.3.1 which is stable and has DRM support
-    val media3Version = "1.3.1"
-    implementation("androidx.media3:media3-exoplayer:$media3Version")
-    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
-    implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
-    implementation("androidx.media3:media3-ui:$media3Version")
-    implementation("androidx.media3:media3-common:$media3Version")
-    implementation("androidx.media3:media3-exoplayer-drm:$media3Version")
+    // ExoPlayer (Media3) with FULL DRM support - Using latest stable version
+    implementation("androidx.media3:media3-exoplayer:1.2.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.2.1")
+    implementation("androidx.media3:media3-exoplayer-dash:1.2.1")
+    implementation("androidx.media3:media3-ui:1.2.1")
+    implementation("androidx.media3:media3-common:1.2.1")
 
     // Firebase
     implementation(platform("com.google.firebase:firebase-bom:32.7.2"))
@@ -131,7 +129,6 @@ dependencies {
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
 
-// ✅ CRITICAL: Kapt must be configured AFTER dependencies
 kapt {
     correctErrorTypes = true
 }
